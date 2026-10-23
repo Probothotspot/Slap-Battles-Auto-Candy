@@ -480,22 +480,22 @@ function Gui.mount(player,register)
         channels[key]=motion;motion:Play();return motion
     end
     make("UIStroke",{Color=rgb(168,102,226),Thickness=1,Transparency=.3},window)
-    local gradient=make("UIGradient",{Color=ColorSequence.new({ColorSequenceKeypoint.new(0,rgb(247,238,255)),
-        ColorSequenceKeypoint.new(.5,rgb(222,199,249)),ColorSequenceKeypoint.new(1,rgb(241,225,255))}),Rotation=0},window)
+    local gradient=make("UIGradient",{Color=ColorSequence.new({ColorSequenceKeypoint.new(0,rgb(166,99,224)),
+        ColorSequenceKeypoint.new(.5,rgb(112,66,172)),ColorSequenceKeypoint.new(1,rgb(143,81,202))}),Rotation=0},window)
     local function text(parent,name,value,x,y,w,h,size)
         return make("TextLabel",{Name=name,Text=value,Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h),
-            BackgroundTransparency=1,TextColor3=rgb(58,34,83),Font=Enum.Font.Gotham,TextSize=size or 12,
+            BackgroundTransparency=1,TextColor3=rgb(255,247,255),Font=Enum.Font.Gotham,TextSize=size or 12,
             TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left},parent)
     end
     local function button(name,value,x,y,w,h,parent)
         local b=make("TextButton",{Name=name,Text=value,Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h),
-            BackgroundColor3=rgb(184,138,232),TextColor3=rgb(52,22,77),Font=Enum.Font.GothamBold,
+            BackgroundColor3=rgb(161,106,218),TextColor3=rgb(255,247,255),Font=Enum.Font.GothamBold,
             TextSize=14,BorderSizePixel=0,AutoButtonColor=false},parent or window);round(b,9)
         local size=make("UIScale",{Scale=1},b)
-        local state={Object=b,Scale=size,Base=rgb(184,138,232)};self.Buttons[b]=state
+        local state={Object=b,Scale=size,Base=rgb(161,106,218)};self.Buttons[b]=state
         local function paint()
             animate(size,"size",{Scale=state.Pressed and .96 or state.Hover and 1.025 or 1},.14)
-            animate(b,"color",{BackgroundColor3=state.Hover and rgb(196,153,245) or state.Base},.18)
+            animate(b,"color",{BackgroundColor3=state.Hover and rgb(183,127,235) or state.Base},.18)
         end
         state.Paint=paint
         register(b.MouseEnter:Connect(function() if not self.Closing then state.Hover=true;paint() end end))
@@ -518,11 +518,11 @@ function Gui.mount(player,register)
     self.State=text(body,"State","Ожидание",15,130,310,30,12)
     text(body,"LogTitle","ЛОГИ",15,166,310,18,10)
     local scroll=make("ScrollingFrame",{Name="LogPanel",Position=UDim2.fromOffset(15,188),Size=UDim2.fromOffset(310,130),
-        BackgroundColor3=rgb(251,247,255),BackgroundTransparency=.15,BorderSizePixel=0,ScrollBarThickness=3,
+        BackgroundColor3=rgb(113,71,157),BackgroundTransparency=.15,BorderSizePixel=0,ScrollBarThickness=3,
         AutomaticCanvasSize=Enum.AutomaticSize.Y,CanvasSize=UDim2.new()},body);round(scroll,10)
     local logs=make("TextLabel",{Name="LogText",Position=UDim2.fromOffset(8,6),Size=UDim2.new(1,-22,0,0),
         AutomaticSize=Enum.AutomaticSize.Y,BackgroundTransparency=1,Font=Enum.Font.Code,TextSize=11,
-        TextColor3=rgb(72,44,101),TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,
+        TextColor3=rgb(255,245,255),TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,
         TextWrapped=true,Text="",RichText=false},scroll)
     local credit=text(body,"Credit","By: Probothotspot",15,327,310,16,10)
     credit.TextXAlignment=Enum.TextXAlignment.Center
@@ -542,7 +542,7 @@ function Gui.mount(player,register)
             self.AutoShown=app.Auto
             self.AutoButton.Text=app.Auto and "Авто: ON" or "Авто: OFF"
             local state=self.Buttons[self.AutoButton]
-            state.Base=app.Auto and rgb(185,139,237) or rgb(184,138,232);state.Paint()
+            state.Base=app.Auto and rgb(185,120,236) or rgb(161,106,218);state.Paint()
         end
         local hop=hopper and hopper.Enabled or false
         if self.HopShown~=hop then self.HopShown=hop;self.HopButton.Text=hop and "Смена серверов: ON" or "Смена серверов: OFF" end
@@ -631,7 +631,7 @@ function Gui.mount(player,register)
         end
     end))
     local shimmer=tween:Create(gradient,TweenInfo.new(10,Enum.EasingStyle.Linear,Enum.EasingDirection.InOut,-1),{Rotation=360})
-    local creditShimmer=tween:Create(credit,TweenInfo.new(2,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut,-1,true),{TextColor3=rgb(106,83,126)})
+    local creditShimmer=tween:Create(credit,TweenInfo.new(2,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut,-1,true),{TextColor3=rgb(219,203,235)})
     self.Tweens={shimmer,creditShimmer};shimmer:Play();creditShimmer:Play()
     self.CloseButton=close
     function self:Destroy()
@@ -762,11 +762,11 @@ function PixelTest.start(Core,Actions,Gui,Feedback,Grid)
         overlay=Instance.new('ScreenGui');overlay.Name='PixelTestHUD';overlay.ResetOnSpawn=false
         overlay.DisplayOrder=1001;overlay.IgnoreGuiInset=true;overlay.Enabled=false;overlay.Parent=player:WaitForChild('PlayerGui')
         label=Instance.new('TextLabel');label.Position=UDim2.fromOffset(10,52);label.Size=UDim2.fromOffset(240,25)
-        label.BackgroundColor3=Color3.fromRGB(237,217,255);label.TextColor3=Color3.fromRGB(58,34,83)
+        label.BackgroundColor3=Color3.fromRGB(137,83,196);label.TextColor3=Color3.fromRGB(255,247,255)
         label.Font=Enum.Font.Gotham;label.TextSize=12;label.Parent=overlay
         local stop=Instance.new('TextButton');stop.Name='Stop';stop.Text='Стоп / вернуть персонажа'
         stop.Position=UDim2.fromOffset(10,78);stop.Size=UDim2.fromOffset(240,25)
-        stop.BackgroundColor3=Color3.fromRGB(184,138,232);stop.TextColor3=Color3.fromRGB(52,22,77)
+        stop.BackgroundColor3=Color3.fromRGB(161,106,218);stop.TextColor3=Color3.fromRGB(255,247,255)
         stop.Font=Enum.Font.Gotham;stop.TextSize=12;stop.Parent=overlay
         actions=Actions.new(player,workspace,Core,register,log,function(show)view:clickVisibility(show)end)
         register(view.AutoButton.Activated:Connect(begin))

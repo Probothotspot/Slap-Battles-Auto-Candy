@@ -150,7 +150,7 @@ end
 local origin=root.CFrame;local cameraOrigin=camera.CFrame
 hb:Fire(.1)
 eq(find('Window').BackgroundColor3[1],255)
-eq(find('LogPanel').BackgroundColor3[1]>230,true)
+eq(find('LogPanel').BackgroundColor3[1],113)
 find('Auto').Activated:Fire();eq(app.Busy,true);finish()
 eq(app.Sent,500);eq(#downPoints,500);eq(shortest>=1/30-1e-7,true)
 local unique={};for _,p in ipairs(downPoints)do local key=p.X..':'..p.Y;assert(not unique[key]);unique[key]=true end

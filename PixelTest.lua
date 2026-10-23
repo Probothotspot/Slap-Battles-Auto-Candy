@@ -73,11 +73,11 @@ function PixelTest.start(Core,Actions,Gui,Feedback,Grid)
         overlay=Instance.new('ScreenGui');overlay.Name='PixelTestHUD';overlay.ResetOnSpawn=false
         overlay.DisplayOrder=1001;overlay.IgnoreGuiInset=true;overlay.Enabled=false;overlay.Parent=player:WaitForChild('PlayerGui')
         label=Instance.new('TextLabel');label.Position=UDim2.fromOffset(10,52);label.Size=UDim2.fromOffset(240,25)
-        label.BackgroundColor3=Color3.fromRGB(237,217,255);label.TextColor3=Color3.fromRGB(58,34,83)
+        label.BackgroundColor3=Color3.fromRGB(137,83,196);label.TextColor3=Color3.fromRGB(255,247,255)
         label.Font=Enum.Font.Gotham;label.TextSize=12;label.Parent=overlay
         local stop=Instance.new('TextButton');stop.Name='Stop';stop.Text='Стоп / вернуть персонажа'
         stop.Position=UDim2.fromOffset(10,78);stop.Size=UDim2.fromOffset(240,25)
-        stop.BackgroundColor3=Color3.fromRGB(184,138,232);stop.TextColor3=Color3.fromRGB(52,22,77)
+        stop.BackgroundColor3=Color3.fromRGB(161,106,218);stop.TextColor3=Color3.fromRGB(255,247,255)
         stop.Font=Enum.Font.Gotham;stop.TextSize=12;stop.Parent=overlay
         actions=Actions.new(player,workspace,Core,register,log,function(show)view:clickVisibility(show)end)
         register(view.AutoButton.Activated:Connect(begin))
