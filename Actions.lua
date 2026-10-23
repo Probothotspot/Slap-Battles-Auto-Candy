@@ -129,6 +129,15 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         assert(scope and scope~=world,"Контейнер Door исчез")
         ctx.Scope=scope;ctx.Methods={}
         if Feedback then ctx.Monitor=Feedback.new(scope) end
+        local touch=door:FindFirstChildOfClass("TouchTransmitter")
+        local touchFn=firetouchinterest
+        if type(touchFn)~="function" and type(getgenv)=="function" then
+            local ok,env=pcall(getgenv)
+            if ok and type(env)=="table" then touchFn=env.firetouchinterest end
+        end
+        if touch and door.CanTouch==true and type(touchFn)=="function" then
+            ctx.Methods[#ctx.Methods+1]={Name="firetouchinterest",Kind="touch",Target=door,Fire=touchFn}
+        end
         -- Only use a detector that actually exists on this door, never invent remotes.
         local detector=door:FindFirstChildOfClass("ClickDetector") or scope:FindFirstChildOfClass("ClickDetector")
         if detector and type(fireclickdetector)=="function" then
@@ -141,7 +150,7 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
             if method.Name==self.PreferredBackend then table.remove(ctx.Methods,i);table.insert(ctx.Methods,1,method);break end
         end
         assert(#ctx.Methods>0,"Нет доступного способа ввода")
-        log("Проверка клика: "..#ctx.Methods.." способов; слушаю Sound выбранной двери")
+        log("Взаимодействие: "..#ctx.Methods.." способов; слушаю Sound выбранной двери")
         return #ctx.Methods
     end
     function self:confirmed(ctx) self.PreferredBackend=ctx.Method and ctx.Method.Name end
@@ -159,13 +168,18 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         local method=assert(ctx.Methods[index],"Способы клика закончились")
         ctx.Method=method
         assert(world.CurrentCamera==ctx.Camera,"Камера сменилась")
-        if type(isrbxactive)=="function" then assert(isrbxactive(),"Окно Roblox не в фокусе") end
+        if method.Kind=="touch" then
+            assert(method.Target:IsDescendantOf(ctx.Scope) and method.Target.CanTouch,"Touch-деталь недоступна")
+            return method.Name
+        end
         if method.Detector then return method.Name end
+        if type(isrbxactive)=="function" then assert(isrbxactive(),"Окно Roblox не в фокусе") end
         local point,visible
         if method.Kind=="viewport" then point,visible=ctx.Camera:WorldToViewportPoint(door.Position)
         else point,visible=ctx.Camera:WorldToScreenPoint(door.Position) end
         assert(visible and point.Z>0,"Дверь не попала в экран")
         ctx.Mouse={X=math.floor(point.X+.5),Y=math.floor(point.Y+.5)}
+        ctx.CursorMoved=true
         if method.Kind=="virtual" then
             ctx.Virtual:SendMousePosition(Vector2.new(ctx.Mouse.X,ctx.Mouse.Y))
         else
@@ -178,7 +192,11 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         assert((ctx.Root.Position-door.Position).Magnitude<20,"Сервер отменил ТП или дверь переместилась")
         if ctx.Monitor then ctx.Monitor:arm() end
         local method=ctx.Method
-        if method.Detector then
+        if method.Kind=="touch" then
+            assert(method.Target:IsDescendantOf(ctx.Scope) and method.Target.CanTouch,"Touch-деталь недоступна")
+            ctx.TouchHeld={Source=ctx.Root,Target=method.Target,Fire=method.Fire}
+            method.Fire(ctx.Root,method.Target,0)
+        elseif method.Detector then
             assert(method.Detector:IsDescendantOf(ctx.Scope),"ClickDetector исчез")
             fireclickdetector(method.Detector)
         else
@@ -189,6 +207,11 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         end
     end
     function self:mouseUp(ctx)
+        if ctx.TouchHeld then
+            local touch=ctx.TouchHeld
+            touch.Fire(touch.Source,touch.Target,1)
+            ctx.TouchHeld=nil
+        end
         if ctx.MouseHeld then
             local m=ctx.Mouse
             if ctx.Method.Kind=="virtual" then
@@ -206,7 +229,7 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         attempt(function() self:mouseUp(ctx) end)
         if ctx.Monitor then attempt(function() ctx.Monitor:Destroy() end) end
         if ctx.MouseBehaviorChanged then attempt(function() ctx.UserInput.MouseBehavior=ctx.MouseBehavior end) end
-        if ctx.OriginalMouse and ctx.Method and not ctx.Method.Detector then
+        if ctx.OriginalMouse and ctx.Method and ctx.CursorMoved then
             attempt(function()
                 local p=ctx.OriginalMouse
                 if ctx.Method.Kind=="virtual" then ctx.Virtual:SendMousePosition(p)

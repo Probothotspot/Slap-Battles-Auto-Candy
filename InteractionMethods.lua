@@ -80,6 +80,7 @@ function Registry.new(ctx,door,scope,world,actions,caps,clock)
                     else point,visible=ctx.Camera:WorldToScreenPoint(door.Position)end
                     assert(visible and point.Z>0,'Дверь вне экрана')
                     ctx.Mouse={X=math.floor(point.X+.5),Y=math.floor(point.Y+.5)}
+                    ctx.CursorMoved=true
                     if kind=='virtual'then ctx.Virtual:SendMousePosition(Vector2.new(ctx.Mouse.X,ctx.Mouse.Y))
                     else ctx.Input:SendMouseMoveEvent(ctx.Mouse.X,ctx.Mouse.Y,game)end
                 end,

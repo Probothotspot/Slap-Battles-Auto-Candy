@@ -13,7 +13,7 @@ function Gui.mount(player,register)
     self.Gui=gui
     local safe=make("Frame",{Name="SafeArea",Size=UDim2.fromScale(1,1),BackgroundTransparency=1},gui)
     local window=make("CanvasGroup",{Name="Window",Size=UDim2.fromOffset(340,402),Position=UDim2.new(.5,-170,.5,-201),
-        GroupTransparency=1,BackgroundColor3=rgb(255,255,255),BorderSizePixel=0,ClipsDescendants=true},safe);round(window,16)
+        GroupTransparency=1,BackgroundTransparency=1,BackgroundColor3=rgb(255,255,255),BorderSizePixel=0,ClipsDescendants=true},safe);round(window,16)
     local scale=make("UIScale",{Scale=1},window)
     local function animate(object,key,props,duration)
         local channels=self.Motion[object] or {};self.Motion[object]=channels
@@ -22,8 +22,11 @@ function Gui.mount(player,register)
         channels[key]=motion;motion:Play();return motion
     end
     make("UIStroke",{Color=rgb(168,102,226),Thickness=1,Transparency=.3},window)
-    local gradient=make("UIGradient",{Color=ColorSequence.new({ColorSequenceKeypoint.new(0,rgb(166,99,224)),
-        ColorSequenceKeypoint.new(.5,rgb(112,66,172)),ColorSequenceKeypoint.new(1,rgb(143,81,202))}),Rotation=0},window)
+    -- The gradient belongs to the backdrop, so it cannot tint the title or controls.
+    local backdrop=make("Frame",{Name="Backdrop",Size=UDim2.fromScale(1,1),BackgroundColor3=rgb(255,255,255),
+        BorderSizePixel=0,ZIndex=1,Active=false},window);round(backdrop,16)
+    local gradient=make("UIGradient",{Color=ColorSequence.new({ColorSequenceKeypoint.new(0,rgb(146,80,205)),
+        ColorSequenceKeypoint.new(.5,rgb(96,52,151)),ColorSequenceKeypoint.new(1,rgb(124,66,183))}),Rotation=0},backdrop)
     local function text(parent,name,value,x,y,w,h,size)
         return make("TextLabel",{Name=name,Text=value,Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h),
             BackgroundTransparency=1,TextColor3=rgb(255,247,255),Font=Enum.Font.Gotham,TextSize=size or 12,
@@ -49,11 +52,16 @@ function Gui.mount(player,register)
         end))
         return b
     end
-    local title=text(window,"Title","Auto Candy",15,5,230,38,20);title.Font=Enum.Font.GothamBold;title.Active=true
-    local collapse=button("Collapse","−",265,10,28,28)
-    local close=button("Close","×",302,10,28,28)
-    local body=make("CanvasGroup",{Name="Body",Position=UDim2.fromOffset(0,46),Size=UDim2.fromOffset(340,356),GroupTransparency=0,BackgroundTransparency=1},window)
-    text(body,"Subtitle","Поиск → ТП → клик → проверка стука",15,0,310,24,11)
+    local header=make("Frame",{Name="Header",Size=UDim2.fromOffset(340,46),BackgroundColor3=rgb(88,44,134),
+        BackgroundTransparency=.08,BorderSizePixel=0,ZIndex=3},window);round(header,12)
+    local title=text(header,"Title","Auto Candy",15,5,230,38,20)
+    title.Font=Enum.Font.GothamBold;title.Active=true;title.Visible=true;title.ZIndex=4
+    title.TextTransparency=0;title.TextColor3=rgb(255,255,255);title.TextWrapped=false
+    title.TextTruncate=Enum.TextTruncate.AtEnd;title.TextStrokeColor3=rgb(48,22,75);title.TextStrokeTransparency=.6
+    local collapse=button("Collapse","−",265,10,28,28,header);collapse.ZIndex=4
+    local close=button("Close","×",302,10,28,28,header);close.ZIndex=4
+    local body=make("CanvasGroup",{Name="Body",Position=UDim2.fromOffset(0,46),Size=UDim2.fromOffset(340,356),GroupTransparency=0,BackgroundTransparency=1,ZIndex=2},window)
+    text(body,"Subtitle","Поиск → ТП → касание → проверка стука",15,0,310,24,11)
     self.AutoButton=button("Auto","Авто: OFF",15,34,148,42,body)
     self.TeleportButton=button("Teleport","Телепорт",177,34,148,42,body)
     self.HopButton=button("ServerHop","Смена серверов: OFF",15,84,310,38,body)
@@ -69,7 +77,7 @@ function Gui.mount(player,register)
     local credit=text(body,"Credit","By: Probothotspot",15,327,310,16,10)
     credit.TextXAlignment=Enum.TextXAlignment.Center
     local resize=button("Resize","↘",313,375,22,22)
-    resize.TextSize=17;resize.BackgroundTransparency=.25
+    resize.TextSize=17;resize.BackgroundTransparency=.25;resize.ZIndex=4
     function self:log(message)
         if self.Destroyed then return end
         self.Lines[#self.Lines+1]=os.date("%H:%M:%S").."  "..tostring(message)

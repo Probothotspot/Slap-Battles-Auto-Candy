@@ -111,7 +111,7 @@ function Core.new(actions,clock,log)
                     self.Phase="pressed"; self.Due=clock()+.12
                 elseif self.Phase=="pressed" then
                     actions:mouseUp(self.Context)
-                    message("Клик отправлен: "..self.ClickMethod..". Ожидание стука…")
+                    message("Взаимодействие отправлено: "..self.ClickMethod..". Ожидание стука…")
                     self.Phase="listen";self.Due=clock()+1.8
                 elseif self.Phase=="listen" then
                     if candidate then

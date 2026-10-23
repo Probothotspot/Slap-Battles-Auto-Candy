@@ -1,6 +1,11 @@
 local Feedback=dofile('Feedback.lua')
 local n=0
 local function eq(a,b)n=n+1;assert(a==b,'feedback #'..n..': '..tostring(a)..' ~= '..tostring(b))end
+eq(Feedback.isKnownKnockId('rbxassetid://4093874915'),true)
+eq(Feedback.isKnownKnockId('https://www.roblox.com/asset/?id=4093874915'),true)
+eq(Feedback.isKnownKnockId('4093874915'),true)
+eq(Feedback.isKnownKnockId('rbxassetid://40938749150'),false)
+eq(Feedback.isKnownKnockId('not-an-asset'),false)
 local signals={}
 local function signal()
  local s={};signals[#signals+1]=s
@@ -37,6 +42,8 @@ local clone=node('Knock clone',root,'Sound');clone.IsPlaying=true
 for _,c in ipairs(root.DescendantAdded)do if c.Connected then c.fn(clone)end end
 eq(f.Result.Name,'Knock clone')
 f:arm();sound.IsPlaying=true;sound:GetPropertyChangedSignal('IsPlaying'):Fire();eq(f.Result.Name,'Knock')
+f:arm();already.SoundId='rbxassetid://4093874915';already.Played:Fire()
+eq(f.Result.Name,'OldSound');eq(f.Result.Knock,true)
 f:Destroy();f:Destroy();sound.Played:Fire();eq(f.Destroyed,true)
 local active=0;for _,s in ipairs(signals)do for _,c in ipairs(s)do if c.Connected then active=active+1 end end end;eq(active,0)
 -- Bounded local indexing and sound subscriptions even for a malformed large Door.

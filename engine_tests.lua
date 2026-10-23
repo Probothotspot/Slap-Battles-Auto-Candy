@@ -128,7 +128,12 @@ local function find(n)return assert(app.Gui:FindFirstChild(n,true),n)end
 local function tick(delta)time=time+delta;hb:Fire(delta)end
 local original=root.CFrame;local originalCamera=camera.CFrame
 tick(.31);eq(find('Window').GroupTransparency,0)
+eq(find('Title').Parent,find('Header'));eq(find('Title').Text,'Auto Candy')
+eq(find('Title').TextTransparency,0);eq(find('Header').ZIndex>find('Body').ZIndex,true)
+eq(find('Backdrop'):FindFirstChildOfClass('UIGradient')~=nil,true)
+eq(find('Window'):FindFirstChildOfClass('UIGradient'),nil)
 find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,false);eq(find('Window').Size.Y.Offset,46)
+eq(find('Title').Visible,true);eq(find('Header').Visible,true)
 find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,true);eq(find('Window').Size.Y.Offset,402)
 -- Rapid reversal must not let the previous collapse hide the reopened body.
 find('Collapse').Activated:Fire();find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,true)
@@ -178,6 +183,29 @@ local detectorCalls=0
 fireclickdetector=function(target)eq(target,detector);detectorCalls=detectorCalls+1;knock.Played:Fire()end
 before=#clicks;find('Teleport').Activated:Fire();finish();eq(detectorCalls,1);eq(#clicks,before)
 fireclickdetector=nil;detector:Destroy()
+-- The user's confirmed path must work without any virtual-mouse service.
+local transmitter=Instance.new('TouchTransmitter');transmitter.Parent=door;door.CanTouch=true
+local oldVIM=services.VirtualInputManager;services.VirtualInputManager=nil
+local oldName,oldId=knock.Name,knock.SoundId;knock.Name='Sound';knock.SoundId='rbxassetid://4093874915'
+local touchCalls={};local silentTouch=false;local deniedTouch=false
+firetouchinterest=function(source,target,state)
+ eq(source,root);eq(target,door);touchCalls[#touchCalls+1]=state
+ if state==0 and deniedTouch then error('fixture: touch denied')end
+ if state==0 and not silentTouch then knock.Played:Fire()end
+end
+before=#clicks;find('Teleport').Activated:Fire();finish()
+eq(touchCalls[1],0);eq(touchCalls[2],1);eq(#touchCalls,2);eq(#clicks,before)
+eq(app.App.Confirmed[door],true);eq(root.Position.X,original.Position.X);eq(app.Gui.Enabled,true)
+-- Cancellation mid-contact still pairs begin/end and restores the same character.
+silentTouch=true;touchCalls={};find('Teleport').Activated:Fire();untilPhase('pressed')
+app.App:setAuto(false);eq(touchCalls[1],0);eq(touchCalls[2],1);eq(#touchCalls,2)
+eq(app.App.Busy,false);eq(root.Position.X,original.Position.X)
+-- Partial rejection cleans up before finishing; it must not report confirmation.
+deniedTouch=true;touchCalls={};app.App.Confirmed={}
+find('Teleport').Activated:Fire();finish();eq(touchCalls[1],0);eq(touchCalls[2],1)
+eq(app.App.Confirmed[door],nil);eq(root.Position.X,original.Position.X)
+firetouchinterest=nil;transmitter:Destroy();services.VirtualInputManager=oldVIM
+knock.Name=oldName;knock.SoundId=oldId
 -- Closing while a click is held releases it and returns before destruction.
 find('Teleport').Activated:Fire();untilPhase('pressed');eq(clicks[#clicks],true)
 find('Close').Activated:Fire();eq(clicks[#clicks],false);eq(root.Position.X,original.Position.X)
@@ -186,7 +214,11 @@ eq(_G.SlapBattlesAutoCandy,nil)
 local active=0;for _,s in ipairs(signals)do for _,c in ipairs(s.listeners)do if c.Connected then active=active+1 end end end
 eq(active,0)
 -- Re-running the bundle removes its preceding session and has exactly two action buttons.
+local diagnosticStops=0
+_G.AutoCandyMethodTest={Destroy=function()diagnosticStops=diagnosticStops+1;_G.AutoCandyMethodTest=nil end}
+_G.AutoCandyPixelTest={Destroy=function()diagnosticStops=diagnosticStops+1;_G.AutoCandyPixelTest=nil end}
 local first=dofile('auto_candy.lua');local second=dofile('auto_candy.lua')
+eq(diagnosticStops,2)
 eq(first.Gui.Parent,nil);eq(second.Gui.Parent,pg)
 second:Destroy();eq(_G.SlapBattlesAutoCandy,nil)
 for _,t in ipairs(tweens)do eq(t.Cancelled,true)end

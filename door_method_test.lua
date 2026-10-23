@@ -114,7 +114,7 @@ function Core.new(actions,clock,log)
                     self.Phase="pressed"; self.Due=clock()+.12
                 elseif self.Phase=="pressed" then
                     actions:mouseUp(self.Context)
-                    message("Клик отправлен: "..self.ClickMethod..". Ожидание стука…")
+                    message("Взаимодействие отправлено: "..self.ClickMethod..". Ожидание стука…")
                     self.Phase="listen";self.Due=clock()+1.8
                 elseif self.Phase=="listen" then
                     if candidate then
@@ -145,6 +145,12 @@ end)()
 local Feedback = (function()
 -- Observe playback inside the selected Door only; never record microphone audio.
 local Feedback={}
+function Feedback.isKnownKnockId(value)
+    local id=tostring(value or ''):match('^rbxassetid://(%d+)$')
+        or tostring(value or ''):match('[?&]id=(%d+)') or tostring(value or ''):match('^(%d+)$')
+    -- Confirmed by the user's successful Xeno door interaction and playback report.
+    return id=='4093874915'
+end
 function Feedback.new(scope,clock)
     clock=clock or os.clock
     local self={Stack={{Node=scope}},Sounds={},Connections={},Pending={},Count=0,Scanned=0,Ready=false}
@@ -157,7 +163,7 @@ function Feedback.new(scope,clock)
         -- Named knock is stronger evidence; an unnamed local effect stays tentative.
         local name=sound.Name:lower()
         local knock=name:find('knock',1,true) or name:find('стук',1,true)
-        local evidence={Name=sound.Name,Id=tostring(sound.SoundId),Knock=knock~=nil}
+        local evidence={Name=sound.Name,Id=tostring(sound.SoundId),Knock=knock~=nil or Feedback.isKnownKnockId(sound.SoundId)}
         if evidence.Knock then self.Result=evidence else self.Candidate=evidence end
     end
     local function watch(o,isNew)
@@ -347,6 +353,15 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         assert(scope and scope~=world,"Контейнер Door исчез")
         ctx.Scope=scope;ctx.Methods={}
         if Feedback then ctx.Monitor=Feedback.new(scope) end
+        local touch=door:FindFirstChildOfClass("TouchTransmitter")
+        local touchFn=firetouchinterest
+        if type(touchFn)~="function" and type(getgenv)=="function" then
+            local ok,env=pcall(getgenv)
+            if ok and type(env)=="table" then touchFn=env.firetouchinterest end
+        end
+        if touch and door.CanTouch==true and type(touchFn)=="function" then
+            ctx.Methods[#ctx.Methods+1]={Name="firetouchinterest",Kind="touch",Target=door,Fire=touchFn}
+        end
         -- Only use a detector that actually exists on this door, never invent remotes.
         local detector=door:FindFirstChildOfClass("ClickDetector") or scope:FindFirstChildOfClass("ClickDetector")
         if detector and type(fireclickdetector)=="function" then
@@ -359,7 +374,7 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
             if method.Name==self.PreferredBackend then table.remove(ctx.Methods,i);table.insert(ctx.Methods,1,method);break end
         end
         assert(#ctx.Methods>0,"Нет доступного способа ввода")
-        log("Проверка клика: "..#ctx.Methods.." способов; слушаю Sound выбранной двери")
+        log("Взаимодействие: "..#ctx.Methods.." способов; слушаю Sound выбранной двери")
         return #ctx.Methods
     end
     function self:confirmed(ctx) self.PreferredBackend=ctx.Method and ctx.Method.Name end
@@ -377,13 +392,18 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         local method=assert(ctx.Methods[index],"Способы клика закончились")
         ctx.Method=method
         assert(world.CurrentCamera==ctx.Camera,"Камера сменилась")
-        if type(isrbxactive)=="function" then assert(isrbxactive(),"Окно Roblox не в фокусе") end
+        if method.Kind=="touch" then
+            assert(method.Target:IsDescendantOf(ctx.Scope) and method.Target.CanTouch,"Touch-деталь недоступна")
+            return method.Name
+        end
         if method.Detector then return method.Name end
+        if type(isrbxactive)=="function" then assert(isrbxactive(),"Окно Roblox не в фокусе") end
         local point,visible
         if method.Kind=="viewport" then point,visible=ctx.Camera:WorldToViewportPoint(door.Position)
         else point,visible=ctx.Camera:WorldToScreenPoint(door.Position) end
         assert(visible and point.Z>0,"Дверь не попала в экран")
         ctx.Mouse={X=math.floor(point.X+.5),Y=math.floor(point.Y+.5)}
+        ctx.CursorMoved=true
         if method.Kind=="virtual" then
             ctx.Virtual:SendMousePosition(Vector2.new(ctx.Mouse.X,ctx.Mouse.Y))
         else
@@ -396,7 +416,11 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         assert((ctx.Root.Position-door.Position).Magnitude<20,"Сервер отменил ТП или дверь переместилась")
         if ctx.Monitor then ctx.Monitor:arm() end
         local method=ctx.Method
-        if method.Detector then
+        if method.Kind=="touch" then
+            assert(method.Target:IsDescendantOf(ctx.Scope) and method.Target.CanTouch,"Touch-деталь недоступна")
+            ctx.TouchHeld={Source=ctx.Root,Target=method.Target,Fire=method.Fire}
+            method.Fire(ctx.Root,method.Target,0)
+        elseif method.Detector then
             assert(method.Detector:IsDescendantOf(ctx.Scope),"ClickDetector исчез")
             fireclickdetector(method.Detector)
         else
@@ -407,6 +431,11 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         end
     end
     function self:mouseUp(ctx)
+        if ctx.TouchHeld then
+            local touch=ctx.TouchHeld
+            touch.Fire(touch.Source,touch.Target,1)
+            ctx.TouchHeld=nil
+        end
         if ctx.MouseHeld then
             local m=ctx.Mouse
             if ctx.Method.Kind=="virtual" then
@@ -424,7 +453,7 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         attempt(function() self:mouseUp(ctx) end)
         if ctx.Monitor then attempt(function() ctx.Monitor:Destroy() end) end
         if ctx.MouseBehaviorChanged then attempt(function() ctx.UserInput.MouseBehavior=ctx.MouseBehavior end) end
-        if ctx.OriginalMouse and ctx.Method and not ctx.Method.Detector then
+        if ctx.OriginalMouse and ctx.Method and ctx.CursorMoved then
             attempt(function()
                 local p=ctx.OriginalMouse
                 if ctx.Method.Kind=="virtual" then ctx.Virtual:SendMousePosition(p)
@@ -471,7 +500,7 @@ function Gui.mount(player,register)
     self.Gui=gui
     local safe=make("Frame",{Name="SafeArea",Size=UDim2.fromScale(1,1),BackgroundTransparency=1},gui)
     local window=make("CanvasGroup",{Name="Window",Size=UDim2.fromOffset(340,402),Position=UDim2.new(.5,-170,.5,-201),
-        GroupTransparency=1,BackgroundColor3=rgb(255,255,255),BorderSizePixel=0,ClipsDescendants=true},safe);round(window,16)
+        GroupTransparency=1,BackgroundTransparency=1,BackgroundColor3=rgb(255,255,255),BorderSizePixel=0,ClipsDescendants=true},safe);round(window,16)
     local scale=make("UIScale",{Scale=1},window)
     local function animate(object,key,props,duration)
         local channels=self.Motion[object] or {};self.Motion[object]=channels
@@ -480,8 +509,11 @@ function Gui.mount(player,register)
         channels[key]=motion;motion:Play();return motion
     end
     make("UIStroke",{Color=rgb(168,102,226),Thickness=1,Transparency=.3},window)
-    local gradient=make("UIGradient",{Color=ColorSequence.new({ColorSequenceKeypoint.new(0,rgb(166,99,224)),
-        ColorSequenceKeypoint.new(.5,rgb(112,66,172)),ColorSequenceKeypoint.new(1,rgb(143,81,202))}),Rotation=0},window)
+    -- The gradient belongs to the backdrop, so it cannot tint the title or controls.
+    local backdrop=make("Frame",{Name="Backdrop",Size=UDim2.fromScale(1,1),BackgroundColor3=rgb(255,255,255),
+        BorderSizePixel=0,ZIndex=1,Active=false},window);round(backdrop,16)
+    local gradient=make("UIGradient",{Color=ColorSequence.new({ColorSequenceKeypoint.new(0,rgb(146,80,205)),
+        ColorSequenceKeypoint.new(.5,rgb(96,52,151)),ColorSequenceKeypoint.new(1,rgb(124,66,183))}),Rotation=0},backdrop)
     local function text(parent,name,value,x,y,w,h,size)
         return make("TextLabel",{Name=name,Text=value,Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h),
             BackgroundTransparency=1,TextColor3=rgb(255,247,255),Font=Enum.Font.Gotham,TextSize=size or 12,
@@ -507,11 +539,16 @@ function Gui.mount(player,register)
         end))
         return b
     end
-    local title=text(window,"Title","Auto Candy",15,5,230,38,20);title.Font=Enum.Font.GothamBold;title.Active=true
-    local collapse=button("Collapse","−",265,10,28,28)
-    local close=button("Close","×",302,10,28,28)
-    local body=make("CanvasGroup",{Name="Body",Position=UDim2.fromOffset(0,46),Size=UDim2.fromOffset(340,356),GroupTransparency=0,BackgroundTransparency=1},window)
-    text(body,"Subtitle","Поиск → ТП → клик → проверка стука",15,0,310,24,11)
+    local header=make("Frame",{Name="Header",Size=UDim2.fromOffset(340,46),BackgroundColor3=rgb(88,44,134),
+        BackgroundTransparency=.08,BorderSizePixel=0,ZIndex=3},window);round(header,12)
+    local title=text(header,"Title","Auto Candy",15,5,230,38,20)
+    title.Font=Enum.Font.GothamBold;title.Active=true;title.Visible=true;title.ZIndex=4
+    title.TextTransparency=0;title.TextColor3=rgb(255,255,255);title.TextWrapped=false
+    title.TextTruncate=Enum.TextTruncate.AtEnd;title.TextStrokeColor3=rgb(48,22,75);title.TextStrokeTransparency=.6
+    local collapse=button("Collapse","−",265,10,28,28,header);collapse.ZIndex=4
+    local close=button("Close","×",302,10,28,28,header);close.ZIndex=4
+    local body=make("CanvasGroup",{Name="Body",Position=UDim2.fromOffset(0,46),Size=UDim2.fromOffset(340,356),GroupTransparency=0,BackgroundTransparency=1,ZIndex=2},window)
+    text(body,"Subtitle","Поиск → ТП → касание → проверка стука",15,0,310,24,11)
     self.AutoButton=button("Auto","Авто: OFF",15,34,148,42,body)
     self.TeleportButton=button("Teleport","Телепорт",177,34,148,42,body)
     self.HopButton=button("ServerHop","Смена серверов: OFF",15,84,310,38,body)
@@ -527,7 +564,7 @@ function Gui.mount(player,register)
     local credit=text(body,"Credit","By: Probothotspot",15,327,310,16,10)
     credit.TextXAlignment=Enum.TextXAlignment.Center
     local resize=button("Resize","↘",313,375,22,22)
-    resize.TextSize=17;resize.BackgroundTransparency=.25
+    resize.TextSize=17;resize.BackgroundTransparency=.25;resize.ZIndex=4
     function self:log(message)
         if self.Destroyed then return end
         self.Lines[#self.Lines+1]=os.date("%H:%M:%S").."  "..tostring(message)
@@ -765,6 +802,7 @@ function Registry.new(ctx,door,scope,world,actions,caps,clock)
                     else point,visible=ctx.Camera:WorldToScreenPoint(door.Position)end
                     assert(visible and point.Z>0,'Дверь вне экрана')
                     ctx.Mouse={X=math.floor(point.X+.5),Y=math.floor(point.Y+.5)}
+                    ctx.CursorMoved=true
                     if kind=='virtual'then ctx.Virtual:SendMousePosition(Vector2.new(ctx.Mouse.X,ctx.Mouse.Y))
                     else ctx.Input:SendMouseMoveEvent(ctx.Mouse.X,ctx.Mouse.Y,game)end
                 end,

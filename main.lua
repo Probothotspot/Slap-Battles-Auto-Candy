@@ -5,11 +5,16 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback)
     local player=players.LocalPlayer;assert(player,"Auto Candy requires a client player")
     local env=_G
     if type(getgenv)=="function" then local ok,v=pcall(getgenv);if ok and type(v)=="table" then env=v end end
+    -- The production window takes over from older diagnostic windows and input.
+    for _,diagnostic in ipairs({"AutoCandyMethodTest","AutoCandyPixelTest"}) do
+        local old=env[diagnostic]
+        if type(old)=="table" and type(old.Destroy)=="function" then old:Destroy() end
+    end
     local key="SlapBattlesAutoCandy"
     if type(env[key])=="table" and type(env[key].Destroy)=="function" then env[key]:Destroy() end
     local connections={};local app,view,actions,hopper;local destroyed=false
     local function register(c) connections[#connections+1]=c;return c end
-    local handle={Version="1.3.0"}
+    local handle={Version="1.4.0"}
     local function dispose(preserve)
         if destroyed then return end;destroyed=true
         if hopper then hopper:Destroy(preserve==true) end

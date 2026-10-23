@@ -156,6 +156,7 @@ function PixelTest.start(Core,Actions,Gui,Feedback,Grid)
                     end
                     if self.Phase=='move' then
                         ctx.Mouse=grid.Points[self.PointIndex]
+                        ctx.CursorMoved=true
                         local moved,why=pcall(function()
                             if ctx.Method.Kind=='virtual'then ctx.Virtual:SendMousePosition(Vector2.new(ctx.Mouse.X,ctx.Mouse.Y))
                             else ctx.Input:SendMouseMoveEvent(ctx.Mouse.X,ctx.Mouse.Y,game)end
