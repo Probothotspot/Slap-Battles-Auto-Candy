@@ -48,6 +48,12 @@ Color3={fromRGB=function(r,g,b)return{r,g,b}end}
 ColorSequence={new=function(v)return v end};ColorSequenceKeypoint={new=function(t,v)return{t,v}end}
 TweenInfo={new=function(...)return{...}end}
 Enum=setmetatable({},{__index=function(t,k)local v=setmetatable({},{__index=function(_,n)return n end});rawset(t,k,v);return v end})
+-- Real KeyCode enum items expose Name and can be enumerated for case-insensitive input.
+local keyItems={}
+for _,name in ipairs({'Unknown','T','F8','LeftShift','E','Space'})do
+ local code={Name=name};Enum.KeyCode[name]=code;keyItems[#keyItems+1]=code
+end
+function Enum.KeyCode:GetEnumItems()return keyItems end
 RaycastParams={new=function()return{}end};OverlapParams={new=function()return{}end}
 local methods,mt={},{}
 Instance={new=function(class)return setmetatable({class=class,p={Name=class,Enabled=true,Visible=true},children={},signals={}},mt)end}
@@ -55,7 +61,7 @@ mt.__index=function(o,k)
  if methods[k]then return methods[k]end
  if k=='AbsoluteSize'then return{X=1000,Y=800}end
  if k=='Activated'or k=='InputBegan'or k=='InputChanged'or k=='InputEnded'or k=='WindowFocusReleased'or k=='Destroying'
- or k=='DescendantAdded'or k=='DescendantRemoving'or k=='MouseEnter'or k=='MouseLeave'or k=='Played'then
+ or k=='DescendantAdded'or k=='DescendantRemoving'or k=='MouseEnter'or k=='MouseLeave'or k=='Played'or k=='FocusLost'then
   o.signals[k]=o.signals[k]or signal();return o.signals[k]
  end
  return o.p[k]
@@ -111,6 +117,7 @@ function services.TweenService:Create(o,info,props)
  tweens[#tweens+1]=t;return t
 end
 input.MouseBehavior='LockCenter'
+function input:GetFocusedTextBox()return self.FocusedBox end
 function input:GetMouseLocation()return Vector2.new(40,50)end
 function input:CreateVirtualInput()return self.Virtual end
 local moves={}
@@ -134,7 +141,7 @@ eq(find('Backdrop'):FindFirstChildOfClass('UIGradient')~=nil,true)
 eq(find('Window'):FindFirstChildOfClass('UIGradient'),nil)
 find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,false);eq(find('Window').Size.Y.Offset,46)
 eq(find('Title').Visible,true);eq(find('Header').Visible,true)
-find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,true);eq(find('Window').Size.Y.Offset,402)
+find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,true);eq(find('Window').Size.Y.Offset,436)
 -- Rapid reversal must not let the previous collapse hide the reopened body.
 find('Collapse').Activated:Fire();find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,true)
 find('Teleport').MouseEnter:Fire();eq(find('Teleport'):FindFirstChildOfClass('UIScale').Scale,1.025)
@@ -206,6 +213,38 @@ find('Teleport').Activated:Fire();finish();eq(touchCalls[1],0);eq(touchCalls[2],
 eq(app.App.Confirmed[door],nil);eq(root.Position.X,original.Position.X)
 firetouchinterest=nil;transmitter:Destroy();services.VirtualInputManager=oldVIM
 knock.Name=oldName;knock.SoundId=oldId
+-- Configurable stop is independent of GUI visibility and never toggles auto on.
+local function key(code,processed,kind)
+ input.InputBegan:Fire({UserInputType=kind or 'Keyboard',KeyCode=code},processed==true)
+end
+eq(find('StopKey').Text,'T')
+app.App:setAuto(true)
+key(Enum.KeyCode.T,true);eq(app.App.Auto,true)
+input.FocusedBox=Instance.new('TextBox');key(Enum.KeyCode.T);eq(app.App.Auto,true)
+input.FocusedBox=nil
+key(Enum.KeyCode.T,false,'Gamepad1');eq(app.App.Auto,true)
+key(Enum.KeyCode.E);eq(app.App.Auto,true)
+key(Enum.KeyCode.T);eq(app.App.Auto,false);eq(app.Gui.Parent,pg)
+key(Enum.KeyCode.T);eq(app.App.Auto,false)
+find('StopKey').Text='  f8  ';find('StopKey').FocusLost:Fire(true)
+eq(find('StopKey').Text,'F8')
+app.App:setAuto(true);key(Enum.KeyCode.T);eq(app.App.Auto,true)
+key(Enum.KeyCode.F8);eq(app.App.Auto,false)
+for _,invalid in ipairs({'','not-a-key','Unknown'})do
+ find('StopKey').Text=invalid;find('StopKey').FocusLost:Fire(false);eq(find('StopKey').Text,'F8')
+end
+-- A collapsed window still receives the bound key.
+find('Collapse').Activated:Fire();app.App:setAuto(true)
+key(Enum.KeyCode.F8);eq(app.App.Auto,false);find('Collapse').Activated:Fire()
+-- Even when state-file writes are unavailable, stop cancels hop/search and held input.
+find('Teleport').Activated:Fire();untilPhase('pressed');eq(app.Gui.Enabled,false)
+app.Hopper.Enabled=true;app.Hopper.Searching=true;app.Hopper.Pending=true
+local previousGeneration=app.Hopper.Generation
+key(Enum.KeyCode.F8)
+eq(app.App.Busy,false);eq(app.App.Auto,false);eq(app.Gui.Enabled,true)
+eq(clicks[#clicks],false);eq(root.Position.X,original.Position.X)
+eq(camera.CFrame,originalCamera);eq(app.Hopper.Enabled,false);eq(app.Hopper.Searching,false)
+eq(app.Hopper.Pending,false);eq(app.Hopper.Generation>previousGeneration,true)
 -- Closing while a click is held releases it and returns before destruction.
 find('Teleport').Activated:Fire();untilPhase('pressed');eq(clicks[#clicks],true)
 find('Close').Activated:Fire();eq(clicks[#clicks],false);eq(root.Position.X,original.Position.X)

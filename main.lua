@@ -14,7 +14,7 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback)
     if type(env[key])=="table" and type(env[key].Destroy)=="function" then env[key]:Destroy() end
     local connections={};local app,view,actions,hopper;local destroyed=false
     local function register(c) connections[#connections+1]=c;return c end
-    local handle={Version="1.5.0"}
+    local handle={Version="1.5.1"}
     local function dispose(preserve)
         if destroyed then return end;destroyed=true
         if hopper then hopper:Destroy(preserve==true) end
@@ -27,7 +27,7 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback)
     function handle:Destroy() dispose(false) end
     env[key]=handle
     local ok,err=pcall(function()
-        view=Gui.mount(player,register)
+        view=Gui.mount(player,register,{Hotkey=true})
         actions=Actions.new(player,workspace,Core,register,function(s) view:log(s) end,function(show) view:clickVisibility(show) end,Feedback)
         app=Core.new(actions,os.clock,function(s) view:log(s) end)
         handle.App=app;handle.Gui=view.Gui
@@ -51,6 +51,31 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback)
             Teleport=function(job) teleport:TeleportToPlaceInstance(game.PlaceId,job,player) end,
         })
         handle.Hopper=hopper
+        local input=game:GetService("UserInputService")
+        local keyNames={}
+        for _,code in ipairs(Enum.KeyCode:GetEnumItems()) do
+            if code~=Enum.KeyCode.Unknown then keyNames[code.Name:lower()]=code end
+        end
+        local stopKey=Enum.KeyCode.T
+        register(view.StopKey.FocusLost:Connect(function()
+            if destroyed or view.Closing then return end
+            local name=view.StopKey.Text:match("^%s*(.-)%s*$"):lower()
+            local selected=keyNames[name]
+            if selected then
+                stopKey=selected;view:log("Клавиша остановки: "..stopKey.Name)
+            else view:log("Неизвестная клавиша. Пример: T, F8, LeftShift") end
+            view.StopKey.Text=stopKey.Name
+        end))
+        register(input.InputBegan:Connect(function(e,processed)
+            if destroyed or view.Closing or processed or input:GetFocusedTextBox() then return end
+            if e.UserInputType~=Enum.UserInputType.Keyboard or e.KeyCode~=stopKey then return end
+            -- Disable queued resume/search before cancelling held input and noclip.
+            -- An already accepted server teleport cannot be revoked by this key.
+            if hopper.Enabled or hopper.Pending or hopper.Searching then hopper:setEnabled(false) end
+            app:setAuto(false)
+            view:log("Остановлено клавишей "..stopKey.Name)
+            view:update(app,hopper,actions)
+        end))
         register(teleport.TeleportInitFailed:Connect(function(p,_,message,placeId)
             if p==player and hopper.Pending and placeId==game.PlaceId then hopper:failed(message) end
         end))

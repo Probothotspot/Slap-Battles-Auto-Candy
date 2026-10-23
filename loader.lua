@@ -1,5 +1,5 @@
 -- Draw first, fetch on a separate task, index only after the main GUI mounts.
-local URL="https://raw.githubusercontent.com/Probothotspot/Slap-Battles-Auto-Candy/main/auto_candy.lua?v=1.5.0"
+local URL="https://raw.githubusercontent.com/Probothotspot/Slap-Battles-Auto-Candy/main/auto_candy.lua?v=1.5.1"
 local env=type(getgenv)=="function" and getgenv() or _G
 local old=env.AutoCandyLoading
 if type(old)=="table" and type(old.Destroy)=="function" then old:Destroy() end

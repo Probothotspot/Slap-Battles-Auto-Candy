@@ -4,7 +4,9 @@ local function make(class,props,parent)
     local o=Instance.new(class);for k,v in pairs(props) do o[k]=v end;o.Parent=parent;return o
 end
 local function round(o,n) make("UICorner",{CornerRadius=UDim.new(0,n or 10)},o) end
-function Gui.mount(player,register)
+function Gui.mount(player,register,options)
+    local keyRow=options and options.Hotkey and 34 or 0
+    local fullHeight=402+keyRow
     local self={Lines={},Collapsed=false,Destroyed=false,Tweens={},Motion={},UserScale=1,Buttons={}}
     local tween=game:GetService("TweenService")
     local input=game:GetService("UserInputService")
@@ -12,7 +14,7 @@ function Gui.mount(player,register)
         ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player:WaitForChild("PlayerGui"))
     self.Gui=gui
     local safe=make("Frame",{Name="SafeArea",Size=UDim2.fromScale(1,1),BackgroundTransparency=1},gui)
-    local window=make("CanvasGroup",{Name="Window",Size=UDim2.fromOffset(340,402),Position=UDim2.new(.5,-170,.5,-201),
+    local window=make("CanvasGroup",{Name="Window",Size=UDim2.fromOffset(340,fullHeight),Position=UDim2.new(.5,-170,.5,-fullHeight/2),
         GroupTransparency=1,BackgroundTransparency=1,BackgroundColor3=rgb(255,255,255),BorderSizePixel=0,ClipsDescendants=true},safe);round(window,16)
     local scale=make("UIScale",{Scale=1},window)
     local function animate(object,key,props,duration)
@@ -60,23 +62,32 @@ function Gui.mount(player,register)
     title.TextTruncate=Enum.TextTruncate.AtEnd;title.TextStrokeColor3=rgb(48,22,75);title.TextStrokeTransparency=.6
     local collapse=button("Collapse","−",265,10,28,28,header);collapse.ZIndex=4
     local close=button("Close","×",302,10,28,28,header);close.ZIndex=4
-    local body=make("CanvasGroup",{Name="Body",Position=UDim2.fromOffset(0,46),Size=UDim2.fromOffset(340,356),GroupTransparency=0,BackgroundTransparency=1,ZIndex=2},window)
+    local body=make("CanvasGroup",{Name="Body",Position=UDim2.fromOffset(0,46),Size=UDim2.fromOffset(340,fullHeight-46),GroupTransparency=0,BackgroundTransparency=1,ZIndex=2},window)
     text(body,"Subtitle","Поиск → ТП → касание → проверка стука",15,0,310,24,11)
     self.AutoButton=button("Auto","Авто: OFF",15,34,148,42,body)
     self.TeleportButton=button("Teleport","Телепорт",177,34,148,42,body)
     self.HopButton=button("ServerHop","Смена серверов: OFF",15,84,310,38,body)
-    self.State=text(body,"State","Ожидание",15,130,310,30,12)
-    text(body,"LogTitle","ЛОГИ",15,166,310,18,10)
-    local scroll=make("ScrollingFrame",{Name="LogPanel",Position=UDim2.fromOffset(15,188),Size=UDim2.fromOffset(310,130),
+    if keyRow>0 then
+        text(body,"StopKeyLabel","Клавиша остановки",15,128,208,28,12)
+        self.StopKey=make("TextBox",{Name="StopKey",Text="T",PlaceholderText="T / F8",
+            Position=UDim2.fromOffset(233,128),Size=UDim2.fromOffset(92,28),
+            BackgroundColor3=rgb(113,65,165),TextColor3=rgb(255,247,255),
+            PlaceholderColor3=rgb(218,190,242),Font=Enum.Font.GothamBold,TextSize=13,
+            BorderSizePixel=0,ClearTextOnFocus=false,MultiLine=false},body)
+        round(self.StopKey,8)
+    end
+    self.State=text(body,"State","Ожидание",15,130+keyRow,310,30,12)
+    text(body,"LogTitle","ЛОГИ",15,166+keyRow,310,18,10)
+    local scroll=make("ScrollingFrame",{Name="LogPanel",Position=UDim2.fromOffset(15,188+keyRow),Size=UDim2.fromOffset(310,130),
         BackgroundColor3=rgb(113,71,157),BackgroundTransparency=.15,BorderSizePixel=0,ScrollBarThickness=3,
         AutomaticCanvasSize=Enum.AutomaticSize.Y,CanvasSize=UDim2.new()},body);round(scroll,10)
     local logs=make("TextLabel",{Name="LogText",Position=UDim2.fromOffset(8,6),Size=UDim2.new(1,-22,0,0),
         AutomaticSize=Enum.AutomaticSize.Y,BackgroundTransparency=1,Font=Enum.Font.Code,TextSize=11,
         TextColor3=rgb(255,245,255),TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,
         TextWrapped=true,Text="",RichText=false},scroll)
-    local credit=text(body,"Credit","By: Probothotspot",15,327,310,16,10)
+    local credit=text(body,"Credit","By: Probothotspot",15,327+keyRow,310,16,10)
     credit.TextXAlignment=Enum.TextXAlignment.Center
-    local resize=button("Resize","↘",313,375,22,22)
+    local resize=button("Resize","↘",313,375+keyRow,22,22)
     resize.TextSize=17;resize.BackgroundTransparency=.25;resize.ZIndex=4
     function self:log(message)
         if self.Destroyed then return end
@@ -109,7 +120,7 @@ function Gui.mount(player,register)
     local function fit(smooth)
         local area=safe.AbsoluteSize
         if area.X<=0 or area.Y<=0 then return end
-        local h=self.Collapsed and 46 or 402
+        local h=self.Collapsed and 46 or fullHeight
         local target=math.max(.1,math.min(self.UserScale,(area.X-16)/340,(area.Y-16)/h))
         if smooth then animate(scale,"resize",{Scale=target},.08)
         else
@@ -126,7 +137,7 @@ function Gui.mount(player,register)
         if self.Closing then return end
         self.Collapsed=not self.Collapsed;body.Visible=true;resize.Visible=not self.Collapsed
         animate(body,"fade",{GroupTransparency=self.Collapsed and 1 or 0},.16)
-        animate(window,"height",{Size=UDim2.fromOffset(340,self.Collapsed and 46 or 402)},.25)
+        animate(window,"height",{Size=UDim2.fromOffset(340,self.Collapsed and 46 or fullHeight)},.25)
         self.CollapseDue=os.clock()+.26
         collapse.Text=self.Collapsed and "+" or "−";fit(true)
     end))
@@ -146,7 +157,7 @@ function Gui.mount(player,register)
         if resizing then
             if e~=resizing.Input and e.UserInputType~=Enum.UserInputType.MouseMovement then return end
             local delta=e.Position-resizing.Pointer
-            local dx,dy=delta.X/340,delta.Y/402
+            local dx,dy=delta.X/340,delta.Y/fullHeight
             self.UserScale=math.clamp(resizing.Scale+(math.abs(dx)>math.abs(dy) and dx or dy),.65,1.6)
             fit(true);return
         end

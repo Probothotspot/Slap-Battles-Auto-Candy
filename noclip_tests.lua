@@ -48,6 +48,12 @@ Color3={fromRGB=function(r,g,b)return{r,g,b}end}
 ColorSequence={new=function(v)return v end};ColorSequenceKeypoint={new=function(t,v)return{t,v}end}
 TweenInfo={new=function(...)return{...}end}
 Enum=setmetatable({},{__index=function(t,k)local v=setmetatable({},{__index=function(_,n)return n end});rawset(t,k,v);return v end})
+-- Real KeyCode enum items expose Name and can be enumerated for case-insensitive input.
+local keyItems={}
+for _,name in ipairs({'Unknown','T','F8','LeftShift','E','Space'})do
+ local code={Name=name};Enum.KeyCode[name]=code;keyItems[#keyItems+1]=code
+end
+function Enum.KeyCode:GetEnumItems()return keyItems end
 RaycastParams={new=function()return{}end};OverlapParams={new=function()return{}end}
 local methods,mt={},{}
 Instance={new=function(class)return setmetatable({class=class,p={Name=class,Enabled=true,Visible=true},children={},signals={}},mt)end}
@@ -55,7 +61,7 @@ mt.__index=function(o,k)
  if methods[k]then return methods[k]end
  if k=='AbsoluteSize'then return{X=1000,Y=800}end
  if k=='Activated'or k=='InputBegan'or k=='InputChanged'or k=='InputEnded'or k=='WindowFocusReleased'or k=='Destroying'
- or k=='DescendantAdded'or k=='DescendantRemoving'or k=='MouseEnter'or k=='MouseLeave'or k=='Played'then
+ or k=='DescendantAdded'or k=='DescendantRemoving'or k=='MouseEnter'or k=='MouseLeave'or k=='Played'or k=='FocusLost'then
   o.signals[k]=o.signals[k]or signal();return o.signals[k]
  end
  return o.p[k]
@@ -111,6 +117,7 @@ function services.TweenService:Create(o,info,props)
  tweens[#tweens+1]=t;return t
 end
 input.MouseBehavior='LockCenter'
+function input:GetFocusedTextBox()return self.FocusedBox end
 function input:GetMouseLocation()return Vector2.new(40,50)end
 function input:CreateVirtualInput()return self.Virtual end
 local moves={}
@@ -152,7 +159,9 @@ eq(removed.CanCollide,false);char.DescendantRemoving:Fire(removed);removed.Paren
 finish();eq(app.App.Busy,false);eq(root.Position.X,original.Position.X);eq(torso.CanCollide,true)
 eq(root.CanCollide,false);eq(hat.CanCollide,true);eq(tree.CanCollide,true);eq(tree.Parent,workspace);eq(liveSim(),0)
 -- Auto-off/cancellation restores collision values without waiting for the attempt.
-find('Teleport').Activated:Fire();eq(torso.CanCollide,false);app.App:setAuto(false)
+find('Teleport').Activated:Fire();eq(torso.CanCollide,false)
+input.InputBegan:Fire({UserInputType='Keyboard',KeyCode=Enum.KeyCode.T},false)
+eq(app.App.Busy,false);eq(app.App.Auto,false)
 eq(torso.CanCollide,true);eq(root.Position.X,original.Position.X);eq(liveSim(),0)
 -- The other side or an ordinary clear floor must keep normal collision physics.
 blocked=false;canopy=false
