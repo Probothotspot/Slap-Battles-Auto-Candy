@@ -10,7 +10,7 @@ local function clean(k,v)
     if k=='Auto' or k=='ServerHop' or k=='Collapsed' then if type(v)=='boolean' then return v end end
 end
 function Settings.new(c)
-    local self={Values=copy(defaults),Loaded=false,Available=type(c.Read)=='function' and type(c.Write)=='function'}
+    local self={Values=copy(defaults),Loaded=false,Dirty=false,Revision=0,Available=type(c.Read)=='function' and type(c.Write)=='function'}
     self.File='AutoCandySettings-v1-'..tostring(c.UserId)..'.json'
     local function report(s)if c.Log then c.Log(s)end end
     local exists=true
@@ -29,14 +29,25 @@ function Settings.new(c)
         elseif type(c.IsFile)=='function' then report('Не удалось прочитать настройки — используются значения по умолчанию') end
     end
     function self:save()
+        self.Dirty=true
+        if c.Active and not c.Active() then return false end
+        if self.Saving then return false end
         if not self.Available then
             if not self.Warned then self.Warned=true;report('Сохранение недоступно: нужны readfile и writefile. Настройки действуют до перезапуска') end
             return false
         end
+        self.Saving=true
+        local revision=self.Revision
+        local snapshot=copy(self.Values)
         local ok,why=pcall(function()
-            local result=c.Write(self.File,c.Encode({Schema=1,UserId=c.UserId,Values=copy(self.Values)}))
+            local raw=c.Encode({Schema=1,UserId=c.UserId,Values=snapshot})
+            assert(not c.Active or c.Active(),'Устаревшая сессия настроек')
+            local result=c.Write(self.File,raw)
             assert(result~=false,'writefile вернула false')
+            assert(c.Read(self.File)==raw,'Проверка записи настроек не прошла')
         end)
+        self.Saving=false
+        if ok and self.Revision==revision then self.Dirty=false end
         if not ok then
             if not self.WriteError then report('Не удалось сохранить настройки: '..tostring(why)) end
             self.WriteError=true
@@ -54,10 +65,16 @@ function Settings.new(c)
         elseif nextValues.ServerHop then nextValues.Auto=true end
         for k,v in pairs(nextValues)do if self.Values[k]~=v then changed=true end end
         self.Values=nextValues
-        if changed then return self:save() end
+        if changed then self.Revision=self.Revision+1 end
+        if changed or self.Dirty then return self:save() end
         return true
     end
-    function self:reset()self.Values=copy(defaults);return self:save()end
+    function self:service(now)
+        if not self.Dirty or self.Saving or now<(self.NextRetry or 0) then return end
+        self.NextRetry=now+3
+        return self:save()
+    end
+    function self:reset()self.Values=copy(defaults);self.Revision=self.Revision+1;return self:save()end
     if not self.Available then self:save() end
     return self
 end

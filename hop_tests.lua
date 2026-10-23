@@ -60,6 +60,27 @@ c.Queue=originalQueue
 local originalWrite=c.Write;c.Write=function()return false end
 local denied=Hop.new(c);eq(denied:setEnabled(true),false);eq(denied.Enabled,false)
 c.Write=originalWrite
+-- Executor IO can yield: step must not interpret the half-enabled mode as OFF.
+app.Auto=false;local interleaved=false;local racing
+c.Write=function(_,v)
+ if not interleaved and racing then
+  interleaved=true;eq(racing.Transitioning,true);racing:step();eq(racing.Enabled,true)
+ end
+ stored=v
+end
+racing=Hop.new(c);eq(racing:setEnabled(true),true);eq(interleaved,true);eq(app.Auto,true)
+-- A stop requested while IO is suspended wins over the in-progress enable.
+local stopping;local stopped=false
+c.Write=function(_,v)
+ if stopping and not stopped then stopped=true;stopping:setEnabled(false) end
+ stored=v
+end
+stopping=Hop.new(c);stopping:setEnabled(true);eq(stopping.Enabled,false);eq(stored.Enabled,false)
+c.Write=originalWrite
+-- An older controller may not reclaim ownership after a newer restore succeeds.
+local older=Hop.new(c);local newer=Hop.new(c)
+eq(newer:setEnabled(true),true);local newOwner=stored.OwnerSession
+eq(older:setEnabled(true),false);eq(stored.OwnerSession,newOwner)
 -- The actual queued program checks the persisted switch and avoids duplicate boot.
 local code=queued[1];local boots=0
 stored={Schema=1,Enabled=true,PlaceId=10,UserId=123,SavedAt=epoch,ResumeJobId='next',ResumeToken=firstToken}

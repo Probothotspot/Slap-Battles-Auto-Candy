@@ -307,6 +307,12 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
     register(world.DescendantRemoving:Connect(function(o)
         self.Doors[o]=nil;self.Pending[o]=nil;self.AppearedAt[o]=nil;self.AddedAt[o]=nil
     end))
+    function self:enableFastIndex()
+        self.AllowPartialIndex=true;self.IndexWork=2048;self.IndexSeconds=.003
+        -- Visit the known container first, without tying matching to that path.
+        local houses=world:FindFirstChild("Houses")
+        if houses then self.Stack[#self.Stack+1]={Node=houses} end
+    end
     function self:serviceIndex()
         if self.Destroyed then return end
         local began=os.clock();local work=0
@@ -315,8 +321,15 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         if self.Ready and #self.Stack==0 and began>=self.NextSweep then
             self.Stack={{Node=world}};self.NextSweep=math.huge
         end
+        if self.AllowPartialIndex then
+            local priority=0
+            for o in pairs(self.Pending) do
+                if priority>=32 or os.clock()-began>=(self.IndexSeconds or .002) then break end
+                self.Pending[o]=nil;index(o);priority=priority+1
+            end
+        end
         -- DFS keeps only the active ancestor chain. No whole-Workspace GetDescendants allocation.
-        while #self.Stack>0 and work<128 and os.clock()-began<.002 do
+        while #self.Stack>0 and work<(self.IndexWork or 128) and os.clock()-began<(self.IndexSeconds or .002) do
             local frame=self.Stack[#self.Stack]
             work=work+1
             if not frame.Children then
@@ -333,7 +346,7 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         end
         local handled=0
         for o in pairs(self.Pending) do
-            if handled>=32 or os.clock()-began>=.002 then break end
+            if handled>=32 or os.clock()-began>=(self.IndexSeconds or .002) then break end
             self.Pending[o]=nil;index(o);handled=handled+1
         end
         if #self.Stack==0 then
@@ -347,7 +360,7 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         return type(arrived)=="number" and math.max(0,arrived+delay-(now or os.clock())) or 0
     end
     function self:doors()
-        if not self.Ready then return {} end
+        if not self.Ready and not self.AllowPartialIndex then return {} end
         local found={}
         for p in pairs(self.Doors) do
             if p:IsDescendantOf(world) and core.isDoor(p,world) then found[#found+1]=p
@@ -487,6 +500,25 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         camera.Focus=CFrame.new(door.Position)
         ctx.UserInput.MouseBehavior=Enum.MouseBehavior.Default;ctx.MouseBehaviorChanged=true
         setClickVisibility(false); ctx.UIHidden=true
+    end
+    local function touchAPI()
+        if type(firetouchinterest)=="function" then return firetouchinterest end
+        if type(getgenv)=="function" then
+            local ok,env=pcall(getgenv)
+            if ok and type(env)=="table" and type(env.firetouchinterest)=="function" then return env.firetouchinterest end
+        end
+        if type(_G.firetouchinterest)=="function" then return _G.firetouchinterest end
+    end
+    function self:fastAvailable() return type(touchAPI())=="function" end
+    function self:fastTouch(ctx,door)
+        local fire=touchAPI();assert(fire,"firetouchinterest unavailable")
+        assert(door.CanTouch~=false,"CanTouch disabled")
+        ctx.TouchHeld={Fire=fire,Source=ctx.Root,Target=door}
+        local began=fire(ctx.Root,door,0)
+        assert(began~=false,"touch begin refused")
+        local ended=fire(ctx.Root,door,1)
+        assert(ended~=false,"touch end refused")
+        ctx.TouchHeld=nil
     end
     function self:beginFeedback(ctx,door)
         local scope=door.Parent

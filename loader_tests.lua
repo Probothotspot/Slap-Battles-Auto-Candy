@@ -1,3 +1,4 @@
+_G.AutoCandyFastCycle=false -- exercise the optional sound-confirmed path
 -- Small deterministic engine fixture: not a replacement for live Roblox physics.
 local count=0
 local function eq(a,b) count=count+1;assert(a==b,'engine #'..count..': '..tostring(a)..' ~= '..tostring(b))end
@@ -127,7 +128,7 @@ function services.VirtualInputManager:SendMouseButtonEvent(x,y,_,down)
 end
 player.UserId=123
 game={PlaceId=100,JobId='current-test-job',GetService=function(_,n)return assert(services[n],n)end}
-task={spawn=function(fn)fn()end,wait=function()end}
+task={spawn=function(fn)fn()end,wait=function(dt)time=time+(dt or .01)end}
 
 local pending={};local downloads=0;local failed=false
 loadstring=load
@@ -148,7 +149,7 @@ report.App:Destroy();eq(report.Destroyed,true)
 failed=true;report=dofile("loader.lua");pending[#pending]();eq(report.State,"error")
 eq(pg:FindFirstChild("AutoCandyLoadingGUI"):GetChildren()[1].Text,"error");report:Destroy()
 failed=false;report=dofile("loader.lua");local worker=pending[#pending]
-time=time+26;hb:Fire(.1);eq(report.State,"error");local before=downloads
+time=time+76;hb:Fire(.1);eq(report.State,"error");local before=downloads
 worker();eq(downloads,before);eq(_G.SlapBattlesAutoCandy,nil);report:Destroy()
 -- Restart before a request completes: stale worker must not download or mount.
 report=dofile("loader.lua");worker=pending[#pending];report:Destroy();worker();eq(downloads,before)
@@ -158,13 +159,33 @@ local f=assert(io.open("auto_candy.lua","rb"));local cached=f:read("*a");f:close
 failed=true;before=downloads
 _G.AutoCandyResumeSource={Job=game.JobId,Source=cached}
 report=dofile("loader.lua");pending[#pending]()
-eq(report.State,"ready");eq(downloads,before);eq(report.App.Version,"1.6.2")
+eq(report.State,"ready");eq(downloads,before);eq(report.App.Version,"1.6.3")
 eq(report.Source,cached);eq(_G.AutoCandyResumeSource,nil);report.App:Destroy()
 -- A wrong job or old header cannot silently execute the resume cache.
 _G.AutoCandyResumeSource={Job="other",Source=cached}
 report=dofile("loader.lua");pending[#pending]();eq(report.State,"error");eq(downloads,before+1);report:Destroy()
 _G.AutoCandyResumeSource={Job=game.JobId,Source="-- Auto Candy v1.6.0 | old bundle"}
 report=dofile("loader.lua");pending[#pending]();eq(report.State,"error");eq(downloads,before+2);report:Destroy()
+-- Function presence is insufficient: retry actual compile and file round trips.
+failed=false;local bridgeStarted=time;local probeWrites=0;local probeFiles={}
+local realCompile=loadstring
+loadstring=function(source,name)
+ if source=='return true' and time-bridgeStarted<7 then error('compiler bridge warming up') end
+ return realCompile(source,name)
+end
+readfile=function(f)
+ if f:match('^AutoCandyBridgeProbe') then return assert(probeFiles[f],'cold read bridge') end
+ error('missing')
+end
+writefile=function(f,raw)
+ if f:match('^AutoCandyBridgeProbe') then
+  probeWrites=probeWrites+1;assert(time-bridgeStarted>=5,'early file probe')
+  if time-bridgeStarted>=9 then probeFiles[f]=raw end
+ end
+end
+report=dofile('loader.lua');pending[#pending]()
+eq(report.State,'ready');eq(time-bridgeStarted>=9,true);eq(probeWrites>=2,true)
+report.App:Destroy();loadstring=realCompile;readfile=nil;writefile=nil
 local active=0;for _,sig in ipairs(signals)do for _,conn in ipairs(sig.listeners)do if conn.Connected then active=active+1 end end end
 eq(active,0)
 os.clock=realClock

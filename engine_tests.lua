@@ -1,3 +1,4 @@
+_G.AutoCandyFastCycle=false -- exercise the optional sound-confirmed path
 -- Small deterministic engine fixture: not a replacement for live Roblox physics.
 local count=0
 local function eq(a,b) count=count+1;assert(a==b,'engine #'..count..': '..tostring(a)..' ~= '..tostring(b))end

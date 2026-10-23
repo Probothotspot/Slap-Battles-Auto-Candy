@@ -2,7 +2,7 @@
 -- Processed generations track bounded interactions/local feedback, not verified candy rewards.
 local Hop={}
 local serial=0
-local HEADER="-- Auto Candy v1.6.2 |"
+local HEADER="-- Auto Candy v1.6.3 |"
 local FILE="AutoCandyHop-v1.json"
 local URL="https://raw.githubusercontent.com/Probothotspot/Slap-Battles-Auto-Candy/main/loader.lua"
 function Hop.choose(data,current,visited,now)
@@ -20,7 +20,7 @@ end
 function Hop.new(c)
     local clock=c.Clock or os.clock
     local epoch=c.Epoch or os.time
-    local cacheFile="AutoCandyResume-v1.6.2-"..tostring(c.UserId)..".lua"
+    local cacheFile="AutoCandyResume-v1.6.3-"..tostring(c.UserId)..".lua"
     local log=c.Log
     serial=serial+1
     local session=c.SessionId or (tostring(c.JobId)..":"..tostring(epoch())..":"..tostring(clock())..":"..serial)
@@ -30,9 +30,11 @@ function Hop.new(c)
         return type(s)=="table" and s.Schema==1 and s.PlaceId==c.PlaceId and s.UserId==c.UserId
             and type(s.SavedAt)=="number" and math.abs(epoch()-s.SavedAt)<600
     end
+    local observedOwner
     local function loadState()
         if type(c.Read)~="function" then return nil end
         local ok,s=pcall(function() return c.Decode(c.Read(stateFile)) end)
+        if ok and type(s)=="table" and s.Schema==1 and s.UserId==c.UserId and s.PlaceId==c.PlaceId then observedOwner=s.OwnerSession end
         if not ok then ok,s=pcall(function() return c.Decode(c.Read(FILE)) end) end
         return ok and valid(s) and s or nil
     end
@@ -47,6 +49,7 @@ function Hop.new(c)
         end
     end
     self.ShouldResume=resume and resume.Enabled==true and resume.ResumeJobId==c.JobId or false
+    self.AcceptedResumeToken=self.ShouldResume and resume.ResumeToken or nil
     function self:stage(name,reason)
         if self.Stage==name and self.Reason==reason then return end
         self.Stage=name;self.Reason=reason;self.StageSince=clock()
@@ -59,8 +62,12 @@ function Hop.new(c)
             local ok,value=pcall(function()return c.Decode(c.Read(stateFile))end)
             if ok and type(value)=="table" and value.Schema==1 and value.UserId==c.UserId and value.PlaceId==c.PlaceId then current=value end
         end
-        assert(claim or not current or not current.OwnerSession or current.OwnerSession==session,
+        -- Claim only the owner observed when this controller was created. A delayed
+        -- restore cannot take the state back from a newer successful controller.
+        assert(not current or not current.OwnerSession or current.OwnerSession==session or
+            (claim and current.OwnerSession==observedOwner),
             "Устаревшая сессия: состояние уже принадлежит другому запуску")
+        assert(not c.Active or c.Active(),"Устаревший игровой контекст после чтения")
         local pruned={};local n=0
         for job,t in pairs(self.Visited) do
             if epoch()-t<1800 and n<199 then pruned[job]=t;n=n+1 end
@@ -68,10 +75,10 @@ function Hop.new(c)
         pruned[c.JobId]=epoch();self.Visited=pruned
         local written=c.Write(stateFile,c.Encode({Schema=1,Enabled=self.Enabled,PlaceId=c.PlaceId,UserId=c.UserId,
             SavedAt=epoch(),ResumeJobId=target,ResumeToken=target and self.Token or nil,
-            OwnerJobId=c.JobId,OwnerSession=session,VisitedJobs=pruned}))
+            OwnerJobId=c.JobId,OwnerSession=session,AcceptedResumeToken=self.AcceptedResumeToken,VisitedJobs=pruned}))
         assert(written~=false,"writefile вернула false: состояние перехода не сохранено")
     end
-    function self:setEnabled(value)
+    local function applyEnabled(value)
         if self.Destroyed or (c.Active and not c.Active()) then return false end
         self.Generation=self.Generation+1;self.Searching=false;self.QuietSince=nil
         c.App.HopMode=false
@@ -84,11 +91,23 @@ function Hop.new(c)
         else self.Enabled=false;self.Pending=false;self.Target=nil end
         local ok,err=pcall(self.save,self,nil,value==true)
         if not ok then self.Enabled=false;log("Не удалось сохранить режим: "..tostring(err));return false end
+        if self.Destroyed or (c.Active and not c.Active()) then self.Enabled=false;return false end
         c.App.HopMode=self.Enabled
         self:stage(self.Enabled and "starting" or "off")
         if self.Enabled then c.App:setAuto(true) end
         log(self.Enabled and ("Смена серверов: ON | Очередь: "..tostring(c.QueueName or "queue_on_teleport")) or "Смена серверов: OFF")
         return true
+    end
+    function self:setEnabled(value)
+        if self.Destroyed or (c.Active and not c.Active()) then return false end
+        if self.Transitioning then self.RequestedMode=value==true;return false end
+        self.Transitioning=true
+        local ok,result=pcall(applyEnabled,value==true)
+        self.Transitioning=false
+        local requested=self.RequestedMode;self.RequestedMode=nil
+        if requested~=nil and requested~=self.Enabled then return self:setEnabled(requested) end
+        if not ok then self.Enabled=false;c.App.HopMode=false;log("Ошибка режима: "..tostring(result));return false end
+        return result
     end
     function self:failed(reason,fatal)
         if self.Destroyed then return end
@@ -140,7 +159,7 @@ end
 local function note(phase,detail)
  status.Phase=phase;status.Detail=detail;status.Updated=os.clock()
  if phase=='loading' or phase=='ready' or env.AutoCandyResumeStatus==status then env.AutoCandyResumeStatus=status end
- if env.AutoCandyResumeStatus~=status then return end
+ if env.AutoCandyResumeStatus~=status or not status.BridgeReady then return end
  local write=api('writefile')
  if write then pcall(function()
   write('AutoCandyResumeStatus-'..tostring(EXPECTED_USER)..'-'..tostring(EXPECTED_PLACE)..'.json',game:GetService('HttpService'):JSONEncode({
@@ -156,8 +175,14 @@ local function validState(loading)
  if s.Enabled~=true then return false,'resume cancelled' end
  if s.ResumeJobId~=EXPECTED_JOB or s.ResumeToken~=EXPECTED_TOKEN then
   local live=env.SlapBattlesAutoCandy
-  if not (loading and s.ResumeJobId==nil and liveHere() and live.Hopper and live.Hopper.Enabled and
-   s.OwnerSession==live.SessionId) then return false,'destination/token changed' end
+  local player=game:GetService('Players').LocalPlayer
+  local owned=player and type(live)=='table' and live.JobId==EXPECTED_JOB and game.JobId==EXPECTED_JOB and
+   live.PlaceId==EXPECTED_PLACE and live.UserId==EXPECTED_USER and live.Gui and
+   live.Gui.Parent==player:FindFirstChild('PlayerGui') and (live.Ready==true or loading and live.Ready==false)
+  if not (s.ResumeJobId==nil and owned and live.Hopper and live.Hopper.Enabled and
+   s.AcceptedResumeToken==EXPECTED_TOKEN and s.OwnerSession==live.SessionId and s.OwnerJobId==EXPECTED_JOB) then
+   return false,'destination/token changed'
+  end
  end
  return true
 end
@@ -167,7 +192,7 @@ local function fail(why)
 end
 local function run()
  note('waiting','waiting for destination runtime')
- local ready=false;local last='game/player/PlayerGui not ready'
+ local ready=false;local stableSince;local last='game/player/PlayerGui not ready'
  -- Queue handlers may run before LocalPlayer, JobId and the file bridge exist.
  -- Wait first; do not silently reject the destination during that startup window.
  while os.clock()-status.Started<60 do
@@ -177,9 +202,14 @@ local function run()
   local loaded=game:IsLoaded()
   if loaded and player and player:FindFirstChild('PlayerGui') and game.JobId==EXPECTED_JOB and game.PlaceId==EXPECTED_PLACE then
    if player.UserId~=EXPECTED_USER then note('cancelled','different account');return end
-   local permitted,why=validState();last=why
-   if permitted==false and os.clock()-status.Started>=5 then note('cancelled',why);return end
-   if permitted then ready=true;break end
+   stableSince=stableSince or os.clock()
+   -- A stable destination grace precedes *any* file bridge invocation.
+   if os.clock()-stableSince>=5 then
+    local permitted,why=validState();last=why
+    if permitted==false then status.BridgeReady=true;note('cancelled',why);return end
+    if permitted then status.BridgeReady=true;ready=true;break end
+   end
+  else stableSince=nil
   end
   task.wait(.2)
  end
@@ -211,7 +241,7 @@ local function run()
    local report=chunk()
    assert(type(report)=='table','loader did not return a report')
    local began=os.clock()
-   while report.State=='loading' and os.clock()-began<30 do
+   while report.State=='loading' and os.clock()-began<90 do
     status.Updated=os.clock()
     if workers[EXPECTED_TOKEN]~=status then return end
     local permitted,reason=validState(true)
@@ -292,7 +322,7 @@ else fail('task.spawn unavailable after teleport')end
         end)
     end
     function self:step()
-        if self.Destroyed or not self.Enabled then return end
+        if self.Destroyed or self.Transitioning or not self.Enabled then return end
         if not c.App.Auto then self:setEnabled(false);return end
         if self.Pending then
             if clock()-self.PendingSince>30 then self:failed("Таймаут телепорта") end
@@ -306,16 +336,16 @@ else fail('task.spawn unavailable after teleport')end
             c.App.PendingManual and "Задержка новой двери" or not c.Actions.Ready and "Индексация" or
             not c.Actions:body() and "Персонаж недоступен"
         if blocked then self:stage("blocked",blocked);self.QuietSince=nil;return end
-        if clock()-self.StartedAt<20 or clock()<self.NextTry then self:stage("cooldown");return end
+        if clock()-self.StartedAt<(c.Fast and 0 or 20) or clock()<self.NextTry then self:stage("cooldown");return end
         local doors=c.Actions:doors()
         for _,door in ipairs(doors) do
             local processed
             if c.App.isProcessed then processed=c.App:isProcessed(door) else processed=c.App.Visited[door] end
             if not processed then self:stage("blocked","Остались необработанные двери");self.QuietSince=nil;return end
         end
-        self:stage("quiet","Ожидание новых дверей: 10 с")
-        if not self.QuietSince then self.QuietSince=clock();log("Дверей нет или все обработаны. Ожидание новых: 10 сек.") end
-        if clock()-self.QuietSince>=10 then self:begin() end
+        self:stage("quiet",c.Fast and "Быстрый обход завершён" or "Ожидание новых дверей: 10 с")
+        if not self.QuietSince then self.QuietSince=clock();log(c.Fast and "Попытки по дверям завершены. Поиск следующего сервера" or "Дверей нет или все обработаны. Ожидание новых: 10 сек.") end
+        if clock()-self.QuietSince>=(c.Fast and 0 or 10) then self:begin() end
     end
     function self:Destroy(preserve)
         if self.Destroyed then return end

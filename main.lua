@@ -1,6 +1,6 @@
 -- Bundled by build.py into auto_candy.lua; no runtime module dependencies.
 local Main={}
-function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
+function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings,FastCycle)
     local players=game:GetService("Players")
     local player=players.LocalPlayer;assert(player,"Auto Candy requires a client player")
     local env=_G
@@ -14,7 +14,7 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
     if type(env[key])=="table" and type(env[key].Destroy)=="function" then env[key]:Destroy(env[key].JobId~=nil and env[key].JobId~=game.JobId) end
     local connections={};local app,view,actions,hopper,settings;local destroyed=false
     local function register(c) connections[#connections+1]=c;return c end
-    local handle={Version="1.6.2",JobId=game.JobId,PlaceId=game.PlaceId,UserId=player.UserId,Ready=false}
+    local handle={Version="1.6.3",JobId=game.JobId,PlaceId=game.PlaceId,UserId=player.UserId,Ready=false}
     handle.SessionId=tostring(handle.JobId)..":"..tostring(os.clock())..":"..tostring({})
     local function dispose(preserve)
         if destroyed then return end;destroyed=true;handle.Ready=false
@@ -32,7 +32,7 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
         local http=game:GetService("HttpService")
         local guidOK,guid=pcall(function()return http:GenerateGUID(false)end)
         if guidOK and type(guid)=="string" then handle.SessionId=guid end
-        settings=Settings.new({UserId=player.UserId,Read=type(readfile)=="function" and readfile or env.readfile,
+        settings=Settings.new({UserId=player.UserId,Active=function()return not destroyed and env[key]==handle and game.JobId==handle.JobId end,Read=type(readfile)=="function" and readfile or env.readfile,
             Write=type(writefile)=="function" and writefile or env.writefile,IsFile=isfile or env.isfile,
             Encode=function(v) return http:JSONEncode(v) end,Decode=function(v) return http:JSONDecode(v) end,
             Log=function(s) view:log(s) end})
@@ -43,6 +43,12 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
         end
         actions=Actions.new(player,workspace,Core,register,function(s) view:log(s) end,function(show) view:clickVisibility(show) end,Feedback)
         app=Core.new(actions,os.clock,function(s) view:log(s) end)
+        local fast=env.AutoCandyFastCycle
+        if fast==nil then fast=_G.AutoCandyFastCycle end
+        if fast~=false then
+            actions:enableFastIndex();FastCycle.attach(app,actions,os.clock,function(s)view:log(s)end)
+            view:log("Быстрый цикл: одна дверь за кадр; без ожидания звука и подтверждения награды")
+        end
         handle.App=app;handle.Gui=view.Gui
         app.NewDoorDelay=settings.Values.DoorDelay
         view.DoorDelay.Text=tostring(app.NewDoorDelay)
@@ -85,7 +91,7 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
             if #events>50 then table.remove(events,1) end
             if type(write)=="function" then pcall(function() write(traceFile,http:JSONEncode({Events=events})) end) end
         end
-        hopper=ServerHop.new({App=app,Actions=actions,PlaceId=game.PlaceId,JobId=game.JobId,UserId=player.UserId,
+        hopper=ServerHop.new({App=app,Actions=actions,Fast=app.FastCycle==true,PlaceId=game.PlaceId,JobId=game.JobId,UserId=player.UserId,
             Log=function(s) view:log(s) end,Queue=queue,QueueName=queueName,Read=read,Write=write,Spawn=task.spawn,Wait=task.wait,
             Source=type(loading)=="table" and loading.Source or nil,SessionId=handle.SessionId,Observe=observe,
             Active=function()return env[key]==handle and game.JobId==handle.JobId end,
@@ -128,6 +134,7 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
             return {Version=handle.Version,Job=handle.JobId,Place=handle.PlaceId,Session=handle.SessionId,Ready=handle.Ready,
                 CurrentGui=handle.Gui and handle.Gui.Parent==player:FindFirstChild("PlayerGui"),
                 LastHeartbeatAge=handle.LastHeartbeat and os.clock()-handle.LastHeartbeat,
+                FastCycle=app.FastCycle==true,FastStats=app.FastStats,RequestedAuto=settings.Values.Auto,RequestedHop=settings.Values.ServerHop,SettingsDirty=settings.Dirty,
                 Auto=app.Auto,Phase=app.Phase,Busy=app.Busy,IndexReady=actions.Ready,Scanned=actions.Scanned,
                 Door=doorPath(app.Door),RetryDoor=doorPath(app.RetryDoor),RetryIn=app.RetryAt and math.max(0,app.RetryAt-os.clock()),
                 Hop={Enabled=hopper.Enabled,Stage=hopper.Stage,Reason=hopper.Reason,StageAge=hopper.StageSince and os.clock()-hopper.StageSince,
@@ -153,13 +160,13 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
         end
         local stopKey=keyNames[settings.Values.StopKey:lower()] or Enum.KeyCode.T
         view.StopKey.Text=stopKey.Name
-        settings:set({StopKey=stopKey.Name})
-        local function saveModes()
-            if not destroyed and env[key]==handle and game.JobId==handle.JobId then settings:set({Auto=app.Auto,ServerHop=hopper.Enabled}) end
+        -- Persist the user's requested modes, never a temporary runtime failure.
+        local function saveModes(auto,hop)
+            if not destroyed and env[key]==handle and game.JobId==handle.JobId then settings:set({Auto=auto,ServerHop=hop}) end
         end
         local function stop()
             if hopper.Enabled or hopper.Pending or hopper.Searching then hopper:setEnabled(false) end
-            app:setAuto(false);saveModes()
+            app:setAuto(false);saveModes(false,false)
         end
         register(view.DoorDelay.FocusLost:Connect(function()
             if destroyed or view.Closing then return end
@@ -203,12 +210,16 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
         end))
         register(view.AutoButton.Activated:Connect(function()
             if view.Closing then return end
-            if app.Auto and hopper.Enabled then hopper:setEnabled(false) end
-            app:setAuto(not app.Auto);saveModes();view:update(app,hopper,actions)
+            local enabled=not settings.Values.Auto
+            saveModes(enabled,false)
+            if hopper.Enabled or hopper.Transitioning then hopper:setEnabled(false) end
+            app:setAuto(enabled);view:update(app,hopper,actions)
         end))
         register(view.HopButton.Activated:Connect(function()
             if view.Closing then return end
-            hopper:setEnabled(not hopper.Enabled);saveModes();view:update(app,hopper,actions)
+            local enabled=not settings.Values.ServerHop
+            saveModes(enabled or settings.Values.Auto,enabled)
+            hopper:setEnabled(enabled);view:update(app,hopper,actions)
         end))
         register(view.TeleportButton.Activated:Connect(function()
             if view.Closing then return end
@@ -228,10 +239,12 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
         register(game:GetService("RunService").Heartbeat:Connect(function()
             if env[key]~=handle or game.JobId~=handle.JobId or game:GetService("Players").LocalPlayer~=player then dispose(true);return end
             handle.LastHeartbeat=os.clock()
+            -- File bridges can yield during restore; do not run a half-initialized controller.
+            if not handle.Ready or hopper.Transitioning then return end
             local good,problem=pcall(function()
                 actions:serviceIndex()
                 if os.clock()<nextTick then return end
-                nextTick=os.clock()+.05
+                nextTick=os.clock()+(app.FastCycle and 0 or .05)
                 if not hopper.Pending and not hopper.Searching then app:step() end
                 hopper:step()
             end)
@@ -240,13 +253,20 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
                 observe("runtime_error",tostring(problem))
                 app:finish("Ошибка: "..tostring(problem),false);app:setAuto(false);view:log(tostring(problem))
             end
-            if not destroyed then saveModes();view:update(app,hopper,actions) end
+            if not destroyed then
+                settings:service(os.clock())
+                view:update(app,hopper,actions)
+            end
         end))
         if hopper.ShouldResume or settings.Values.ServerHop then
             view:log("Восстановление смены серверов")
-            hopper:setEnabled(true)
+            -- A fresh destination handoff takes precedence over an older OFF snapshot.
+            saveModes(true,true)
+            if not hopper:setEnabled(true) then
+                view:log("Режим ON сохранён; запуск переходов не удался. Подробности в логе")
+            end
         elseif settings.Values.Auto then app:setAuto(true) end
-        saveModes();view:update(app,hopper,actions)
+        view:update(app,hopper,actions)
         handle.Ready=true;observe("ready","main GUI mounted")
         view:log("Auto Candy готов. Настройки "..(settings.Loaded and "загружены" or "по умолчанию"))
     end)

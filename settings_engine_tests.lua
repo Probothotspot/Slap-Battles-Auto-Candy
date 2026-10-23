@@ -1,3 +1,4 @@
+_G.AutoCandyFastCycle=false -- exercise the optional sound-confirmed path
 -- Small deterministic engine fixture: not a replacement for live Roblox physics.
 local count=0
 local function eq(a,b) count=count+1;assert(a==b,'settings engine #'..count..': '..tostring(a)..' ~= '..tostring(b))end
@@ -171,7 +172,27 @@ stopKey(Enum.KeyCode.T);eq(app.App.Auto,true);stopKey(Enum.KeyCode.F8);eq(app.Ap
 -- Both modes survive a fresh launch and share the restored stop key.
 find('Collapse').Activated:Fire();find('ServerHop').Activated:Fire()
 eq(app.Hopper.Enabled,true);eq(app.Settings.Values.ServerHop,true);eq(app.Settings.Values.Auto,true)
-app=dofile('auto_candy.lua');eq(app.Hopper.Enabled,true);eq(app.App.Auto,true);eq(find('StopKey').Text,'F8')
+-- Reproduce the report: a yielding state write lets Heartbeat run during restoration.
+local normalWrite=writefile;local startupInterleaved=false
+writefile=function(f,raw)
+ local live=_G.SlapBattlesAutoCandy
+ if not startupInterleaved and f:match('^AutoCandyHop%-v2') and live and live.Hopper and not live.Ready and live.Hopper.Enabled then
+  startupInterleaved=true;hb:Fire(.01)
+  eq(live.Hopper.Enabled,true);eq(live.Ready,false)
+ end
+ return normalWrite(f,raw)
+end
+app=dofile('auto_candy.lua');writefile=normalWrite
+eq(startupInterleaved,true);eq(app.Hopper.Enabled,true);eq(app.App.Auto,true);eq(find('StopKey').Text,'F8')
+eq(app.Settings.Values.ServerHop,true)
+-- A temporary runtime failure must not overwrite the user's saved ON preference.
+local normalIndex=app.Hopper
+local indexStep=app.App.step
+app.App.step=function()error('fixture transient runtime failure')end
+tick(.1);eq(app.App.Auto,false);eq(app.Hopper.Enabled,false)
+eq(app.Settings.Values.Auto,true);eq(app.Settings.Values.ServerHop,true)
+app.App.step=indexStep
+app=dofile('auto_candy.lua');eq(app.App.Auto,true);eq(app.Hopper.Enabled,true)
 -- Reset cancels current work, persists defaults, and restores the expanded scale.
 tick(.1);eq(app.App.Busy,true)
 find('ResetDefaults').Activated:Fire()

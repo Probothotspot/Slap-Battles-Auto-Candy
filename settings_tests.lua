@@ -33,4 +33,21 @@ c.Write=oldWrite;eq(r:save(),true);eq(Settings.new(c).Values.DoorDelay,5)
 c.Write=function()return false end;r=Settings.new(c);eq(r:set({DoorDelay=6}),false)
 c.Read=nil;c.Write=nil;r=Settings.new(c);eq(r.Available,false);eq(r:set({DoorDelay=7}),false);eq(r.Values.DoorDelay,7)
 errors=#logs;r:set({DoorDelay=8});eq(#logs,errors)
+-- A failed write remains dirty even when the next request repeats the same value.
+c.Read=function(f)return assert(files[f],'missing')end;c.Write=function()error('temporary bridge outage')end
+r=Settings.new(c);eq(r:set({Auto=true,ServerHop=true}),false);eq(r.Dirty,true)
+c.Write=oldWrite;eq(r:set({Auto=true,ServerHop=true}),true);eq(r.Dirty,false)
+eq(Settings.new(c).Values.ServerHop,true)
+-- A backend returning success without writing is not a successful save.
+c.Write=function()end
+r=Settings.new(c);eq(r:set({DoorDelay=9}),false);eq(r.Dirty,true)
+c.Write=oldWrite;r:service(0);eq(r.Dirty,false);eq(Settings.new(c).Values.DoorDelay,9)
+-- Concurrent UI edits during a yielding write retain a newer dirty revision.
+local interleave=true
+c.Write=function(f,raw)
+ if interleave then interleave=false;r:set({DoorDelay=11}) end
+ oldWrite(f,raw)
+end
+r=Settings.new(c);r:set({DoorDelay=10});eq(r.Values.DoorDelay,11);eq(r.Dirty,true)
+c.Write=oldWrite;r:service(3);eq(r.Dirty,false);eq(Settings.new(c).Values.DoorDelay,11)
 print('PASS: '..n..' validated settings, account isolation, persistence, reset and unavailable-storage assertions')

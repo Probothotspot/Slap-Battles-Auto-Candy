@@ -5,14 +5,14 @@ local epoch=10000;local clock=0;local originalClock,originalTime=os.clock,os.tim
 os.clock=function()return clock end;os.time=function()return epoch end
 local stored={};local code;local jobs=0;local logs={}
 local app={Auto=false};function app:setAuto(v)self.Auto=v end
-local source='-- Auto Candy v1.6.2 | fixture cached bundle'
+local source='-- Auto Candy v1.6.3 | fixture cached bundle'
 local c={App=app,PlaceId=10,UserId=123,JobId='old',Actions={},LoaderSource='embedded loader fixture',Source=source,
  Log=function(s)logs[#logs+1]=s end,Spawn=function(fn)fn()end,Read=function(f)return stored[f]end,
  Write=function(f,v)stored[f]=v end,Encode=function(v)return v end,Decode=function(v)return v end,
  Queue=function(v)code=v end,Get=function()return{data={{id='next',playing=1,maxPlayers=10}}}end,
  UrlEncode=function(v)return v end,Teleport=function()jobs=jobs+1 end}
 local h=Hop.new(c);eq(h:setEnabled(true),true);h:begin();eq(jobs,1);eq(h.Pending,true)
-eq(stored['AutoCandyResume-v1.6.2-123.lua'],source)
+eq(stored['AutoCandyResume-v1.6.3-123.lua'],source)
 local state=stored[h.StateFile]
 local function copy(t)local o={};for k,v in pairs(t)do o[k]=v end;return o end
 local function scenario(o)
@@ -33,12 +33,13 @@ local function scenario(o)
   if k=='JobId'then return clock>=(o.jobAt or 0)and 'next'or 'old'end
  end})
  local function read(f)
+  assert(clock>=5,'file bridge called before startup grace')
   if clock<(o.fileAt or 0)then error('bridge not synchronized')end
   if f==h.StateFile then
    if o.staleUntil and clock<o.staleUntil then local stale=copy(s);stale.ResumeJobId=nil;return stale end
    return s
   end
-  if f=='AutoCandyResume-v1.6.2-123.lua'then return o.badCache and '-- old build' or source end
+  if f=='AutoCandyResume-v1.6.3-123.lua'then return o.badCache and '-- old build' or source end
   error('missing')
  end
  readfile=o.envOnly and nil or read;env.readfile=read
@@ -58,7 +59,7 @@ local function scenario(o)
   clock=clock+(dt or .1)
   for _,report in ipairs(reports)do
    -- Main.setEnabled saves the consumed destination before loader.State becomes ready.
-   if o.consume and clock>=readyTimes[report]-.3 then s.ResumeJobId=nil;s.OwnerSession='new-session' end
+   if o.consume and clock>=readyTimes[report]-.3 then s.ResumeJobId=nil;s.OwnerSession='new-session';s.OwnerJobId='next';s.AcceptedResumeToken=s.ResumeToken end
    if o.cancel and clock>=readyTimes[report]-.3 then s.Enabled=false end
    if clock>=readyTimes[report] and not report.Destroyed then report.State='ready' end
   end
@@ -66,6 +67,10 @@ local function scenario(o)
  if o.oldGui then env.SlapBattlesAutoCandy={Ready=true,JobId=o.wrongRoot and 'next'or 'old',PlaceId=10,UserId=123,Gui={Parent={}}} end
  if o.oldWorker then env.AutoCandyResumeWorkers={[s.ResumeToken]={Runtime=game,Phase=o.deadWorker and 'waiting'or 'ready',Updated=o.deadWorker and -100 or clock}} end
  if o.wrongToken then s.ResumeToken='stale-token' end
+ if o.alreadyConsumed then
+  s.AcceptedResumeToken=s.ResumeToken;s.ResumeJobId=nil;s.OwnerSession='mounted-session';s.OwnerJobId='next'
+  env.SlapBattlesAutoCandy={Ready=true,JobId='next',PlaceId=10,UserId=123,SessionId='mounted-session',Gui={Parent=playerGui},Hopper={Enabled=true}}
+ end
  if o.disabled then s.Enabled=false end
  if o.stale then s.SavedAt=epoch-601 end
  assert(load(code))();assert(load(code))();eq(#workers,1) -- Duplicate queue entries share one worker.
@@ -88,5 +93,6 @@ r=scenario({oldGui=true,oldWorker=true});eq(r.Status.Phase,'ready');eq(r.Calls,1
 r=scenario({oldGui=true,wrongRoot=true,oldWorker=true});eq(r.Status.Phase,'ready');eq(r.Calls,1)
 r=scenario({oldWorker=true,deadWorker=true});eq(r.Status.Phase,'ready');eq(r.Calls,1)
 r=scenario({wrongToken=true});eq(r.Status.Phase,'cancelled');eq(r.Calls,0)
+r=scenario({alreadyConsumed=true});eq(r.Status.Phase,'ready');eq(r.Calls,0);eq(r.Status.Detail,'existing GUI')
 os.clock=originalClock;os.time=originalTime
 print('PASS: '..n..' real queued bootstrap readiness, delayed bridge, cache, retry, cancellation and deduplication assertions')
