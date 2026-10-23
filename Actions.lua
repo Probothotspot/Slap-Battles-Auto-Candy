@@ -1,9 +1,11 @@
 local Actions={}
 function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
-    local self={Doors=setmetatable({},{__mode="k"}),Ready=false,Destroyed=false,Scanned=0,
-        Stack={{Node=world}},Pending={}}
+    local self={Doors=setmetatable({},{__mode="k"}),Generations=setmetatable({},{__mode="k"}),Ready=false,Destroyed=false,Scanned=0,
+        Stack={{Node=world}},Pending={},NextSweep=0,Contexts={}}
     local function index(o)
-        if o:IsDescendantOf(world) and core.isDoor(o,world) then self.Doors[o]=true end
+        if o:IsDescendantOf(world) and core.isDoor(o,world) and not self.Doors[o] then
+            self.Doors[o]=true;self.Generations[o]=(self.Generations[o] or 0)+1
+        end
     end
     register(world.DescendantAdded:Connect(function(o)
         -- Constant-time event callback. Ancestor inspection runs in the budgeted worker.
@@ -13,6 +15,11 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
     function self:serviceIndex()
         if self.Destroyed then return end
         local began=os.clock();local work=0
+        -- Reconcile late renames/ancestry changes as well as DescendantAdded events.
+        -- Readiness stays true while subsequent sweeps run in the same small budget.
+        if self.Ready and #self.Stack==0 and began>=self.NextSweep then
+            self.Stack={{Node=world}};self.NextSweep=math.huge
+        end
         -- DFS keeps only the active ancestor chain. No whole-Workspace GetDescendants allocation.
         while #self.Stack>0 and work<128 and os.clock()-began<.002 do
             local frame=self.Stack[#self.Stack]
@@ -34,8 +41,12 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
             if handled>=32 or os.clock()-began>=.002 then break end
             self.Pending[o]=nil;index(o);handled=handled+1
         end
-        if #self.Stack==0 and not self.Ready then self.Ready=true;log("Индекс дверей готов: проверено "..self.Scanned.." объектов") end
+        if #self.Stack==0 then
+            if not self.Ready then self.Ready=true;log("Индекс дверей готов: проверено "..self.Scanned.." объектов") end
+            if self.NextSweep==0 or self.NextSweep==math.huge then self.NextSweep=os.clock()+5 end
+        end
     end
+    function self:generation(door) return self.Generations[door] or 0 end
     function self:doors()
         if not self.Ready then return {} end
         local found={}
@@ -72,6 +83,51 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         c:PivotTo(cf*r.CFrame:ToObjectSpace(c:GetPivot()))
         r.AssemblyLinearVelocity=Vector3.zero; r.AssemblyAngularVelocity=Vector3.zero
     end
+    function self:stopNoclip(ctx)
+        if not ctx or not ctx.Noclip then return end
+        local state=ctx.Noclip;ctx.Noclip=nil;self.Contexts[ctx]=nil
+        for _,connection in ipairs(state.Connections) do connection:Disconnect() end
+        local errors={}
+        for part,original in pairs(state.Parts) do
+            local ok,why=pcall(function() part.CanCollide=original end)
+            if not ok then errors[#errors+1]=tostring(why) end
+        end
+        if #errors>0 then error(table.concat(errors,'; ')) end
+    end
+    function self:setHold(ctx,cf) if ctx.Noclip then ctx.Noclip.Hold=cf end end
+    function self:startNoclip(ctx,cf)
+        if ctx.Noclip then ctx.Noclip.Hold=cf;return end
+        local state={Parts={},Connections={},Hold=cf};ctx.Noclip=state;self.Contexts[ctx]=true
+        local function track(part)
+            if part:IsA('BasePart') then
+                if state.Parts[part]==nil then state.Parts[part]=part.CanCollide end
+                if part.CanCollide then part.CanCollide=false end
+            end
+        end
+        -- Only the local character, never Workspace or the tree models.
+        for _,part in ipairs(ctx.Character:GetDescendants()) do track(part) end
+        state.Connections[#state.Connections+1]=ctx.Character.DescendantAdded:Connect(track)
+        state.Connections[#state.Connections+1]=ctx.Character.DescendantRemoving:Connect(function(part)
+            local original=state.Parts[part]
+            if original~=nil then part.CanCollide=original;state.Parts[part]=nil end
+        end)
+        state.Connections[#state.Connections+1]=game:GetService('RunService').PreSimulation:Connect(function()
+            if ctx.Noclip~=state then return end
+            local character,root=self:body()
+            if self.Destroyed or character~=ctx.Character or root~=ctx.Root then
+                local ok,why=pcall(self.stopNoclip,self,ctx)
+                if not ok then log('Noclip: '..tostring(why)) end
+                return
+            end
+            local ok,why=pcall(function()
+                for part in pairs(state.Parts) do
+                    if part:IsDescendantOf(ctx.Character) and part.CanCollide then part.CanCollide=false end
+                end
+                if state.Hold then pivot(ctx,state.Hold) end
+            end)
+            if not ok then ctx.NoclipError=tostring(why) end
+        end)
+    end
     function self:approach(ctx,door)
         -- Use the thin local horizontal axis, then choose the closer face.
         -- No fixed world position, colour, material or house-name check.
@@ -87,15 +143,22 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         overlap.FilterDescendantsInstances={ctx.Character}; overlap.RespectCanCollide=true
         local halfY=math.abs(door.CFrame.RightVector.Y)*door.Size.X/2
             +math.abs(door.CFrame.UpVector.Y)*door.Size.Y/2+math.abs(door.CFrame.LookVector.Y)*door.Size.Z/2
+        local fallback
         for _,direction in ipairs(candidates) do
             local extent=math.abs(direction:Dot(door.CFrame.RightVector))*door.Size.X/2
                 +math.abs(direction:Dot(door.CFrame.UpVector))*door.Size.Y/2
                 +math.abs(direction:Dot(door.CFrame.LookVector))*door.Size.Z/2
             local offset=door.Position+direction*(extent+2)
             local baseY=door.Position.Y-halfY
+            local height=math.max(3,ctx.Humanoid.HipHeight+ctx.Root.Size.Y/2)
+            -- A tree canopy is not a reliable floor. The door's own lower edge
+            -- supplies the fallback height, held only for this operation.
+            if not fallback then
+                local position=Vector3.new(offset.X,baseY+height+.1,offset.Z)
+                fallback=CFrame.lookAt(position,Vector3.new(door.Position.X,position.Y,door.Position.Z))
+            end
             local hit=world:Raycast(Vector3.new(offset.X,baseY+8,offset.Z),Vector3.new(0,-24,0),ray)
-            if hit and hit.Normal.Y>.7 then
-                local height=math.max(3,ctx.Humanoid.HipHeight+ctx.Root.Size.Y/2)
+            if hit and hit.Normal.Y>.7 and hit.Position.Y<=baseY+1.5 and hit.Position.Y>=baseY-8 then
                 local position=Vector3.new(offset.X,hit.Position.Y+height+.1,offset.Z)
                 local blocks=world:GetPartBoundsInBox(CFrame.new(position),Vector3.new(2.5,4,2.5),overlap)
                 if #blocks==0 then
@@ -104,11 +167,14 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
                 end
             end
         end
-        error("Нет свободной площадки в 2 studs от двери")
+        assert(fallback,'Не удалось определить место перед дверью')
+        self:startNoclip(ctx,fallback);pivot(ctx,fallback)
+        log('Препятствие у двери: временный noclip до возврата')
     end
     function self:valid(ctx,door)
         local c,r=self:body()
         if c~=ctx.Character or r~=ctx.Root then return false,"Персонаж погиб или сменился" end
+        if ctx.NoclipError then return false,'Noclip: '..ctx.NoclipError end
         if not door:IsDescendantOf(world) then return false,"Дверь исчезла" end
         return true
     end
@@ -251,9 +317,16 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
             assert(c==ctx.Character and r==ctx.Root,"Возвращать новый/мёртвый персонаж нельзя")
             pivot(ctx,ctx.Origin)
         end)
+        -- Restore collisions even when position restoration was refused after death.
+        attempt(function() self:stopNoclip(ctx) end)
         if #problems>0 then error(table.concat(problems,"; ")) end
     end
-    function self:Destroy() self.Destroyed=true;self.Doors={};self.Pending={};self.Stack={} end
+    function self:Destroy()
+        self.Destroyed=true
+        local contexts={};for ctx in pairs(self.Contexts) do contexts[#contexts+1]=ctx end
+        for _,ctx in ipairs(contexts) do pcall(self.stopNoclip,self,ctx) end
+        self.Doors={};self.Pending={};self.Stack={}
+    end
     return self
 end
 return Actions

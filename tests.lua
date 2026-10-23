@@ -37,7 +37,7 @@ app:setAuto(false)
 -- Missing objects produce a user-visible log and no movement.
 doors={};events={};eq(app:attempt(true),false);eq(#events,0)
 eq(logs[#logs]:find('Нет существующих',1,true)~=nil,true)
-doors={part};app.Cooldown[part]=nil
+doors={part};app.Cooldown[part]=nil;app.Visited[part]=nil
 -- Cancellation after a mouse press restores input and origin through restore.
 app:setAuto(true);app:step();eq(app.Busy,true)
 t=t+.36;app:step();t=t+.16;app:step();t=t+.21;app:step();t=t+.16;app:step();eq(app.Phase,'pressed')
@@ -64,7 +64,7 @@ actions.candidate={Name='Sound',Id='unknown'}
 t=t+1.9;app:step();eq(app.Phase,'return');eq(app.Confirmed[part],nil)
 t=t+.31;app:step();eq(app.Busy,false);actions.candidate=nil
 -- Nearest eligible object selection and expiry.
-local second={distance=2};part.distance=20;doors={part,second};app.Cooldown={}
+local second={distance=2};part.distance=20;doors={part,second};app.Cooldown={};app.Visited={}
 app:setAuto(true);app:step();eq(app.Door,second);complete();app:step();t=t+2.1;app:step();eq(app.Door,part)
 app:setAuto(false);app:Destroy();app:Destroy();eq(app.Destroyed,true);eq(app:attempt(true),false)
 print('PASS: '..n..' matching, transaction, cancellation, cooldown and failure assertions')

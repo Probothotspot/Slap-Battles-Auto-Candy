@@ -34,5 +34,16 @@ local new=node('DoorInnerTouch',f,'Part');local before=calls
 world.DescendantAdded:Fire(new);eq(calls,before);eq(a.Doors[new],nil)
 a:serviceIndex();eq(a.Doors[new],true)
 world.DescendantRemoving:Fire(new);new.Parent=nil;eq(a.Doors[new],nil)
+-- Replication can assign names after parenting, with no new DescendantAdded event.
+local late=node('Part',f,'Part');world.DescendantAdded:Fire(late);late.Name='DoorInnerTouch'
+eq(a.Doors[late],nil)
+local realClock=os.clock;os.clock=function()return realClock()+6 end
+a:serviceIndex();eq(a.Ready,true)
+while #a.Stack>0 do local before=calls;a:serviceIndex();eq(calls-before<=128,true)end
+eq(a.Doors[late],true)
+local generation=a:generation(late)
+world.DescendantRemoving:Fire(late);world.DescendantAdded:Fire(late);a:serviceIndex()
+eq(a:generation(late),generation+1)
+os.clock=realClock
 a:Destroy();before=calls;a:serviceIndex();eq(calls,before);eq(#a.Stack,0)
 print('PASS: '..n..' incremental-index budgeting, event and cleanup assertions over 3000 objects')

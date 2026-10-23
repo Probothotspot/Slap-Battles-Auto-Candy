@@ -22,9 +22,11 @@ function Registry.new(ctx,door,scope,world,actions,caps,clock)
                 Begin=function()
                     held(function()
                         local valid,why=actions:valid(ctx,door);assert(valid,why)
+                        if actions.setHold then actions:setHold(ctx,stage) end
                         ctx.Character:PivotTo(stage*ctx.Root.CFrame:ToObjectSpace(ctx.Character:GetPivot()))
                         ctx.Root.AssemblyLinearVelocity=Vector3.zero;ctx.Root.AssemblyAngularVelocity=Vector3.zero
                     end)
+                    if actions.setHold then actions:setHold(ctx,CFrame.new(p.Position)) end
                     ctx.Character:PivotTo(CFrame.new(p.Position)*ctx.Root.CFrame:ToObjectSpace(ctx.Character:GetPivot()))
                     ctx.Root.AssemblyLinearVelocity=Vector3.zero;ctx.Root.AssemblyAngularVelocity=Vector3.zero
                 end})

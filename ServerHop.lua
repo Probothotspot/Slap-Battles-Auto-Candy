@@ -1,5 +1,5 @@
 -- Resume requires executor-provided queue_on_teleport plus readfile/writefile.
--- A door is "processed" after a click was sent, not after a verified candy reward.
+-- Processed generations track bounded interactions/local feedback, not verified candy rewards.
 local Hop={}
 local FILE="AutoCandyHop-v1.json"
 local URL="https://raw.githubusercontent.com/Probothotspot/Slap-Battles-Auto-Candy/main/loader.lua"
@@ -144,7 +144,9 @@ if not ok then warn("[AutoCandy resume] "..tostring(err)) end
         if clock()-self.StartedAt<20 or clock()<self.NextTry then return end
         local doors=c.Actions:doors()
         for _,door in ipairs(doors) do
-            if not c.App.Visited[door] then self.QuietSince=nil;return end
+            local processed
+            if c.App.isProcessed then processed=c.App:isProcessed(door) else processed=c.App.Visited[door] end
+            if not processed then self.QuietSince=nil;return end
         end
         if not self.QuietSince then self.QuietSince=clock();log("Дверей нет или все обработаны. Ожидание новых: 10 сек.") end
         if clock()-self.QuietSince>=10 then self:begin() end

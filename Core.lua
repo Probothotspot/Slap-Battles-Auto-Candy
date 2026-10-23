@@ -10,8 +10,17 @@ function Core.isDoor(part,world)
 end
 function Core.new(actions,clock,log)
     clock=clock or os.clock; log=log or function() end
-    local self={Auto=false,Busy=false,Destroyed=false,Phase="idle",Visited=setmetatable({},{__mode="k"}),Confirmed=setmetatable({},{__mode="k"}),Cooldown=setmetatable({},{__mode="k"}),NextScan=0}
+    local self={Auto=false,Busy=false,Destroyed=false,Waiting=false,Phase="idle",Visited=setmetatable({},{__mode="k"}),
+        VisitedGeneration=setmetatable({},{__mode="k"}),AttemptGeneration=setmetatable({},{__mode="k"}),
+        Confirmed=setmetatable({},{__mode="k"}),Cooldown=setmetatable({},{__mode="k"}),NextScan=0}
     local function message(s) log(s) end
+    local function generation(door) return actions.generation and actions:generation(door) or 0 end
+    function self:isProcessed(door)
+        return self.Visited[door]==true and (self.VisitedGeneration[door] or 0)==generation(door)
+    end
+    function self:markProcessed(door)
+        self.Visited[door]=true;self.VisitedGeneration[door]=generation(door)
+    end
     function self:finish(reason)
         if not self.Busy then return end
         local context=self.Context
@@ -31,27 +40,29 @@ function Core.new(actions,clock,log)
             local found=actions:doors()
             local best,bestDistance
             for _,door in ipairs(found) do
-                if manual or ((not self.HopMode or not self.Visited[door]) and (self.Cooldown[door] or 0)<=clock()) then
+                if self.AttemptGeneration[door]~=generation(door) then self.Cooldown[door]=nil end
+                if manual or (not self:isProcessed(door) and (self.Cooldown[door] or 0)<=clock()) then
                     local distance=actions:distance(door)
                     if distance and (not bestDistance or distance<bestDistance) then best,bestDistance=door,distance end
                 end
             end
             if not best then
-                if manual or #found==0 then
-                    if manual or clock()>=(self.NextEmptyLog or 0) then
-                        message("Нет существующих объектов DoorInnerTouch / Door")
-                        self.NextEmptyLog=clock()+10
-                    end
+                if manual then message("Нет существующих объектов DoorInnerTouch / Door")
+                elseif not self.Waiting or clock()>=(self.NextEmptyLog or 0) then
+                    message("Авто: ожидание новых дверей — наблюдение продолжается")
+                    self.NextEmptyLog=clock()+15
                 end
+                self.Waiting=not manual
                 return nil
             end
             return best
         end)
         if not ok then message("Поиск: "..tostring(doorOrError)); return false end
         local door=doorOrError; if not door then return false end
-        self.Cooldown[door]=clock()+120
+        self.Waiting=false;self.AttemptGeneration[door]=generation(door)
         local good,context=pcall(actions.capture,actions)
         if not good then message("Запуск: "..tostring(context)); return false end
+        self.Cooldown[door]=clock()+120
         self.Busy=true; self.Context=context; self.Door=door
         local moved,err=pcall(actions.approach,actions,context,door)
         if not moved then self:finish("ТП: "..tostring(err)); return false end
@@ -62,6 +73,7 @@ function Core.new(actions,clock,log)
     function self:setAuto(value)
         if self.Destroyed then return end
         self.Auto=value==true
+        self.Waiting=false
         message(self.Auto and "Авто: ON — пассивное ожидание дверей" or "Авто: OFF")
         if not self.Auto then self:finish("Операция отменена") end
         self.NextScan=0
@@ -73,7 +85,7 @@ function Core.new(actions,clock,log)
         if problem then message(problem) end
         self.ClickIndex=(self.ClickIndex or 0)+1
         if self.ClickIndex>(self.ClickCount or 0) then
-            self.Visited[self.Door]=true
+            self:markProcessed(self.Door)
             message("Стук не подтверждён: способы исчерпаны. Конфеты не считаются полученными")
             self.Phase="return";self.Due=clock()+.15
         else
@@ -85,11 +97,14 @@ function Core.new(actions,clock,log)
         if self.Busy then
             local valid,reason=actions:valid(self.Context,self.Door)
             if not valid then self:finish(reason or "Дверь или персонаж недоступны"); return end
+            if self.AttemptGeneration[self.Door]~=generation(self.Door) then
+                self:finish('Дверь появилась заново; старая попытка отменена');return
+            end
             local heard,candidate,ready=actions:feedback(self.Context)
             if heard and self.Phase~="return" then
                 actions:mouseUp(self.Context)
                 actions:confirmed(self.Context)
-                self.Visited[self.Door]=true;self.Confirmed[self.Door]=true
+                self:markProcessed(self.Door);self.Confirmed[self.Door]=true
                 message("Стук обнаружен: "..heard.Name.." | "..heard.Id.." | "..tostring(self.ClickMethod))
                 self.Phase="return";self.Due=clock()+.3
             end
@@ -115,7 +130,7 @@ function Core.new(actions,clock,log)
                     self.Phase="listen";self.Due=clock()+1.8
                 elseif self.Phase=="listen" then
                     if candidate then
-                        self.Visited[self.Door]=true
+                        self:markProcessed(self.Door)
                         message("Звук двери: "..candidate.Name.." | "..candidate.Id..". Тип звука неизвестен; повтор отменён")
                         self.Phase="return";self.Due=clock()+.3
                     else self:nextClick("Стук не обнаружен; проверяю следующий способ") end
