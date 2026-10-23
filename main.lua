@@ -9,7 +9,7 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback)
     if type(env[key])=="table" and type(env[key].Destroy)=="function" then env[key]:Destroy() end
     local connections={};local app,view,actions,hopper;local destroyed=false
     local function register(c) connections[#connections+1]=c;return c end
-    local handle={Version="1.2.0"}
+    local handle={Version="1.2.1"}
     local function dispose(preserve)
         if destroyed then return end;destroyed=true
         if hopper then hopper:Destroy(preserve==true) end

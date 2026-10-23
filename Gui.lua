@@ -13,7 +13,7 @@ function Gui.mount(player,register)
     self.Gui=gui
     local safe=make("Frame",{Name="SafeArea",Size=UDim2.fromScale(1,1),BackgroundTransparency=1},gui)
     local window=make("CanvasGroup",{Name="Window",Size=UDim2.fromOffset(340,402),Position=UDim2.new(.5,-170,.5,-201),
-        GroupTransparency=1,BackgroundColor3=rgb(66,32,102),BorderSizePixel=0,ClipsDescendants=true},safe);round(window,16)
+        GroupTransparency=1,BackgroundColor3=rgb(255,255,255),BorderSizePixel=0,ClipsDescendants=true},safe);round(window,16)
     local scale=make("UIScale",{Scale=1},window)
     local function animate(object,key,props,duration)
         local channels=self.Motion[object] or {};self.Motion[object]=channels
@@ -21,23 +21,23 @@ function Gui.mount(player,register)
         local motion=tween:Create(object,TweenInfo.new(duration or .18,Enum.EasingStyle.Quart,Enum.EasingDirection.Out),props)
         channels[key]=motion;motion:Play();return motion
     end
-    make("UIStroke",{Color=rgb(188,119,255),Thickness=1,Transparency=.3},window)
-    local gradient=make("UIGradient",{Color=ColorSequence.new({ColorSequenceKeypoint.new(0,rgb(116,59,177)),
-        ColorSequenceKeypoint.new(.5,rgb(55,30,84)),ColorSequenceKeypoint.new(1,rgb(30,23,47))}),Rotation=0},window)
+    make("UIStroke",{Color=rgb(168,102,226),Thickness=1,Transparency=.3},window)
+    local gradient=make("UIGradient",{Color=ColorSequence.new({ColorSequenceKeypoint.new(0,rgb(247,238,255)),
+        ColorSequenceKeypoint.new(.5,rgb(222,199,249)),ColorSequenceKeypoint.new(1,rgb(241,225,255))}),Rotation=0},window)
     local function text(parent,name,value,x,y,w,h,size)
         return make("TextLabel",{Name=name,Text=value,Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h),
-            BackgroundTransparency=1,TextColor3=rgb(245,233,255),Font=Enum.Font.Gotham,TextSize=size or 12,
+            BackgroundTransparency=1,TextColor3=rgb(58,34,83),Font=Enum.Font.Gotham,TextSize=size or 12,
             TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left},parent)
     end
     local function button(name,value,x,y,w,h,parent)
         local b=make("TextButton",{Name=name,Text=value,Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h),
-            BackgroundColor3=rgb(96,53,145),TextColor3=rgb(255,245,255),Font=Enum.Font.GothamBold,
+            BackgroundColor3=rgb(184,138,232),TextColor3=rgb(52,22,77),Font=Enum.Font.GothamBold,
             TextSize=14,BorderSizePixel=0,AutoButtonColor=false},parent or window);round(b,9)
         local size=make("UIScale",{Scale=1},b)
-        local state={Object=b,Scale=size,Base=rgb(96,53,145)};self.Buttons[b]=state
+        local state={Object=b,Scale=size,Base=rgb(184,138,232)};self.Buttons[b]=state
         local function paint()
             animate(size,"size",{Scale=state.Pressed and .96 or state.Hover and 1.025 or 1},.14)
-            animate(b,"color",{BackgroundColor3=state.Hover and rgb(137,77,191) or state.Base},.18)
+            animate(b,"color",{BackgroundColor3=state.Hover and rgb(196,153,245) or state.Base},.18)
         end
         state.Paint=paint
         register(b.MouseEnter:Connect(function() if not self.Closing then state.Hover=true;paint() end end))
@@ -60,11 +60,11 @@ function Gui.mount(player,register)
     self.State=text(body,"State","Ожидание",15,130,310,30,12)
     text(body,"LogTitle","ЛОГИ",15,166,310,18,10)
     local scroll=make("ScrollingFrame",{Name="LogPanel",Position=UDim2.fromOffset(15,188),Size=UDim2.fromOffset(310,130),
-        BackgroundColor3=rgb(19,16,29),BackgroundTransparency=.15,BorderSizePixel=0,ScrollBarThickness=3,
+        BackgroundColor3=rgb(251,247,255),BackgroundTransparency=.15,BorderSizePixel=0,ScrollBarThickness=3,
         AutomaticCanvasSize=Enum.AutomaticSize.Y,CanvasSize=UDim2.new()},body);round(scroll,10)
     local logs=make("TextLabel",{Name="LogText",Position=UDim2.fromOffset(8,6),Size=UDim2.new(1,-22,0,0),
         AutomaticSize=Enum.AutomaticSize.Y,BackgroundTransparency=1,Font=Enum.Font.Code,TextSize=11,
-        TextColor3=rgb(220,203,240),TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,
+        TextColor3=rgb(72,44,101),TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,
         TextWrapped=true,Text="",RichText=false},scroll)
     local credit=text(body,"Credit","By: Probothotspot",15,327,310,16,10)
     credit.TextXAlignment=Enum.TextXAlignment.Center
@@ -84,7 +84,7 @@ function Gui.mount(player,register)
             self.AutoShown=app.Auto
             self.AutoButton.Text=app.Auto and "Авто: ON" or "Авто: OFF"
             local state=self.Buttons[self.AutoButton]
-            state.Base=app.Auto and rgb(145,77,200) or rgb(96,53,145);state.Paint()
+            state.Base=app.Auto and rgb(185,139,237) or rgb(184,138,232);state.Paint()
         end
         local hop=hopper and hopper.Enabled or false
         if self.HopShown~=hop then self.HopShown=hop;self.HopButton.Text=hop and "Смена серверов: ON" or "Смена серверов: OFF" end
@@ -173,7 +173,7 @@ function Gui.mount(player,register)
         end
     end))
     local shimmer=tween:Create(gradient,TweenInfo.new(10,Enum.EasingStyle.Linear,Enum.EasingDirection.InOut,-1),{Rotation=360})
-    local creditShimmer=tween:Create(credit,TweenInfo.new(2,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut,-1,true),{TextColor3=rgb(155,155,170)})
+    local creditShimmer=tween:Create(credit,TweenInfo.new(2,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut,-1,true),{TextColor3=rgb(106,83,126)})
     self.Tweens={shimmer,creditShimmer};shimmer:Play();creditShimmer:Play()
     self.CloseButton=close
     function self:Destroy()
