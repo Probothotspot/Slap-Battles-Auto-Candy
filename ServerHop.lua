@@ -140,7 +140,7 @@ if not ok then warn("[AutoCandy resume] "..tostring(err)) end
             if clock()-self.SearchStarted>20 then self:failed("Таймаут списка серверов") end
             return
         end
-        if c.App.Busy or not c.Actions.Ready or not c.Actions:body() then self.QuietSince=nil;return end
+        if c.App.Busy or c.App.PendingManual or c.App.RetryDoor or not c.Actions.Ready or not c.Actions:body() then self.QuietSince=nil;return end
         if clock()-self.StartedAt<20 or clock()<self.NextTry then return end
         local doors=c.Actions:doors()
         for _,door in ipairs(doors) do

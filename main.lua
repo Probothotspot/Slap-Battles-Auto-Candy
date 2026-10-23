@@ -1,6 +1,6 @@
 -- Bundled by build.py into auto_candy.lua; no runtime module dependencies.
 local Main={}
-function Main.start(Core,Actions,Gui,ServerHop,Feedback)
+function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
     local players=game:GetService("Players")
     local player=players.LocalPlayer;assert(player,"Auto Candy requires a client player")
     local env=_G
@@ -12,9 +12,9 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback)
     end
     local key="SlapBattlesAutoCandy"
     if type(env[key])=="table" and type(env[key].Destroy)=="function" then env[key]:Destroy() end
-    local connections={};local app,view,actions,hopper;local destroyed=false
+    local connections={};local app,view,actions,hopper,settings;local destroyed=false
     local function register(c) connections[#connections+1]=c;return c end
-    local handle={Version="1.5.1"}
+    local handle={Version="1.6.0"}
     local function dispose(preserve)
         if destroyed then return end;destroyed=true
         if hopper then hopper:Destroy(preserve==true) end
@@ -28,10 +28,18 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback)
     env[key]=handle
     local ok,err=pcall(function()
         view=Gui.mount(player,register,{Hotkey=true})
+        local http=game:GetService("HttpService")
+        settings=Settings.new({UserId=player.UserId,Read=readfile,Write=writefile,IsFile=isfile,
+            Encode=function(v) return http:JSONEncode(v) end,Decode=function(v) return http:JSONDecode(v) end,
+            Log=function(s) view:log(s) end})
+        handle.Settings=settings
+        view:applyPreferences(settings.Values)
+        view.OnPreferencesChanged=function() settings:set(view:preferences()) end
         actions=Actions.new(player,workspace,Core,register,function(s) view:log(s) end,function(show) view:clickVisibility(show) end,Feedback)
         app=Core.new(actions,os.clock,function(s) view:log(s) end)
         handle.App=app;handle.Gui=view.Gui
-        local http=game:GetService("HttpService")
+        app.NewDoorDelay=settings.Values.DoorDelay
+        view.DoorDelay.Text=tostring(app.NewDoorDelay)
         local teleport=game:GetService("TeleportService")
         local queue=queue_on_teleport or queueonteleport or (type(syn)=="table" and syn.queue_on_teleport)
         local send=request or http_request or (type(syn)=="table" and syn.request)
@@ -56,13 +64,39 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback)
         for _,code in ipairs(Enum.KeyCode:GetEnumItems()) do
             if code~=Enum.KeyCode.Unknown then keyNames[code.Name:lower()]=code end
         end
-        local stopKey=Enum.KeyCode.T
+        local stopKey=keyNames[settings.Values.StopKey:lower()] or Enum.KeyCode.T
+        view.StopKey.Text=stopKey.Name
+        settings:set({StopKey=stopKey.Name})
+        local function saveModes() settings:set({Auto=app.Auto,ServerHop=hopper.Enabled}) end
+        local function stop()
+            if hopper.Enabled or hopper.Pending or hopper.Searching then hopper:setEnabled(false) end
+            app:setAuto(false);saveModes()
+        end
+        register(view.DoorDelay.FocusLost:Connect(function()
+            if destroyed or view.Closing then return end
+            local value=tonumber((view.DoorDelay.Text:gsub(",",".")))
+            if value and value==value and value>=0 and value<=60 then
+                app.NewDoorDelay=value;app.NextScan=0
+                settings:set({DoorDelay=value});view:log("Задержка новой двери: "..tostring(value).." с")
+            else view:log("Задержка: введи число от 0 до 60 секунд") end
+            view.DoorDelay.Text=tostring(app.NewDoorDelay)
+        end))
+        register(view.ResetButton.Activated:Connect(function()
+            if destroyed or view.Closing then return end
+            stop()
+            local saved=settings:reset()
+            stopKey=Enum.KeyCode.T;app.NewDoorDelay=settings.Values.DoorDelay;app.NextScan=0
+            view.StopKey.Text=stopKey.Name;view.DoorDelay.Text=tostring(app.NewDoorDelay)
+            view:applyPreferences(settings.Values)
+            view:log(saved and "Настройки сброшены и сохранены" or "Настройки сброшены; сохранение недоступно")
+            view:update(app,hopper,actions)
+        end))
         register(view.StopKey.FocusLost:Connect(function()
             if destroyed or view.Closing then return end
             local name=view.StopKey.Text:match("^%s*(.-)%s*$"):lower()
             local selected=keyNames[name]
             if selected then
-                stopKey=selected;view:log("Клавиша остановки: "..stopKey.Name)
+                stopKey=selected;settings:set({StopKey=stopKey.Name});view:log("Клавиша остановки: "..stopKey.Name)
             else view:log("Неизвестная клавиша. Пример: T, F8, LeftShift") end
             view.StopKey.Text=stopKey.Name
         end))
@@ -71,8 +105,7 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback)
             if e.UserInputType~=Enum.UserInputType.Keyboard or e.KeyCode~=stopKey then return end
             -- Disable queued resume/search before cancelling held input and noclip.
             -- An already accepted server teleport cannot be revoked by this key.
-            if hopper.Enabled or hopper.Pending or hopper.Searching then hopper:setEnabled(false) end
-            app:setAuto(false)
+            stop()
             view:log("Остановлено клавишей "..stopKey.Name)
             view:update(app,hopper,actions)
         end))
@@ -82,11 +115,11 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback)
         register(view.AutoButton.Activated:Connect(function()
             if view.Closing then return end
             if app.Auto and hopper.Enabled then hopper:setEnabled(false) end
-            app:setAuto(not app.Auto);view:update(app,hopper,actions)
+            app:setAuto(not app.Auto);saveModes();view:update(app,hopper,actions)
         end))
         register(view.HopButton.Activated:Connect(function()
             if view.Closing then return end
-            hopper:setEnabled(not hopper.Enabled);view:update(app,hopper,actions)
+            hopper:setEnabled(not hopper.Enabled);saveModes();view:update(app,hopper,actions)
         end))
         register(view.TeleportButton.Activated:Connect(function()
             if view.Closing then return end
@@ -96,7 +129,7 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback)
         register(view.CloseButton.Activated:Connect(function()
             if view.Closing then return end
             -- Stop input and save mode-off immediately; only the window fade is delayed.
-            hopper:setEnabled(false);app:setAuto(false)
+            stop()
             view:closeAnimated(function() dispose(false) end)
         end))
         -- Roblox destroys the old GUI during a pending server transition. Preserve
@@ -113,15 +146,16 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback)
             end)
             if not good then
                 if hopper.Enabled then hopper:setEnabled(false) end
-                app.Auto=false;app:finish("Ошибка: "..tostring(problem));view:log(tostring(problem))
+                app:finish("Ошибка: "..tostring(problem),false);app:setAuto(false);view:log(tostring(problem))
             end
-            view:update(app,hopper,actions)
+            if not destroyed then saveModes();view:update(app,hopper,actions) end
         end))
-        view:log("Auto Candy готов. Авто выключено")
-        if hopper.ShouldResume then
-            view:log("Возобновление после смены сервера")
+        if settings.Values.ServerHop or (not settings.Loaded and hopper.ShouldResume) then
+            view:log("Восстановление смены серверов")
             hopper:setEnabled(true)
-        end
+        elseif settings.Values.Auto then app:setAuto(true) end
+        saveModes();view:update(app,hopper,actions)
+        view:log("Auto Candy готов. Настройки "..(settings.Loaded and "загружены" or "по умолчанию"))
     end)
     if not ok then dispose(false);error("[AutoCandy] "..tostring(err)) end
     return handle

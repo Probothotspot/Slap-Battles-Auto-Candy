@@ -5,7 +5,7 @@ local function make(class,props,parent)
 end
 local function round(o,n) make("UICorner",{CornerRadius=UDim.new(0,n or 10)},o) end
 function Gui.mount(player,register,options)
-    local keyRow=options and options.Hotkey and 34 or 0
+    local keyRow=options and options.Hotkey and 108 or 0
     local fullHeight=402+keyRow
     local self={Lines={},Collapsed=false,Destroyed=false,Tweens={},Motion={},UserScale=1,Buttons={}}
     local tween=game:GetService("TweenService")
@@ -75,6 +75,15 @@ function Gui.mount(player,register,options)
             PlaceholderColor3=rgb(218,190,242),Font=Enum.Font.GothamBold,TextSize=13,
             BorderSizePixel=0,ClearTextOnFocus=false,MultiLine=false},body)
         round(self.StopKey,8)
+        text(body,"DoorDelayLabel","Новая дверь: задержка, с",15,162,208,28,12)
+        self.DoorDelay=make("TextBox",{Name="DoorDelay",Text="1",PlaceholderText="0–60",
+            Position=UDim2.fromOffset(233,162),Size=UDim2.fromOffset(92,28),
+            BackgroundColor3=rgb(113,65,165),TextColor3=rgb(255,247,255),
+            PlaceholderColor3=rgb(218,190,242),Font=Enum.Font.GothamBold,TextSize=13,
+            BorderSizePixel=0,ClearTextOnFocus=false,MultiLine=false},body)
+        round(self.DoorDelay,8)
+        self.ResetButton=button("ResetDefaults","Сброс по умолчанию",15,196,310,30,body)
+        self.ResetButton.TextSize=12
     end
     self.State=text(body,"State","Ожидание",15,130+keyRow,310,30,12)
     text(body,"LogTitle","ЛОГИ",15,166+keyRow,310,18,10)
@@ -107,7 +116,11 @@ function Gui.mount(player,register,options)
         end
         local hop=hopper and hopper.Enabled or false
         if self.HopShown~=hop then self.HopShown=hop;self.HopButton.Text=hop and "Смена серверов: ON" or "Смена серверов: OFF" end
-        if self.BusyShown~=app.Busy then self.BusyShown=app.Busy;self.TeleportButton.Text=app.Busy and "Выполняется…" or "Телепорт" end
+        local activity=app.Busy and "busy" or app.RetryDoor and "retry" or app.PendingManual and "delay" or "idle"
+        if self.BusyShown~=activity then
+            self.BusyShown=activity
+            self.TeleportButton.Text=activity=="busy" and "Выполняется…" or activity=="retry" and "Повтор через 3 с" or activity=="delay" and "Ожидание…" or "Телепорт"
+        end
         local state=actions and not actions.Ready and ("Индексация в фоне: "..actions.Scanned.." объектов") or self.LastMessage or "Ожидание"
         if self.LastShownState~=state then self.LastShownState=state;self.State.Text=state end
     end
@@ -140,6 +153,7 @@ function Gui.mount(player,register,options)
         animate(window,"height",{Size=UDim2.fromOffset(340,self.Collapsed and 46 or fullHeight)},.25)
         self.CollapseDue=os.clock()+.26
         collapse.Text=self.Collapsed and "+" or "−";fit(true)
+        if self.OnPreferencesChanged then self.OnPreferencesChanged() end
     end))
     local drag,pointer,origin,resizing
     register(title.InputBegan:Connect(function(e)
@@ -168,7 +182,9 @@ function Gui.mount(player,register,options)
     end))
     register(input.InputEnded:Connect(function(e)
         if e==drag then drag=nil end
-        if resizing and e==resizing.Input then resizing=nil end
+        if resizing and e==resizing.Input then
+            resizing=nil;if self.OnPreferencesChanged then self.OnPreferencesChanged() end
+        end
         if e.UserInputType==Enum.UserInputType.MouseButton1 or e.UserInputType==Enum.UserInputType.Touch then
             for _,s in pairs(self.Buttons) do if s.Pressed then s.Pressed=false;s.Paint() end end
         end
@@ -202,6 +218,18 @@ function Gui.mount(player,register,options)
         for _,channels in pairs(self.Motion) do for _,t in pairs(channels) do t:Cancel() end end
         self.Motion={};self.CloseDone=nil
         gui:Destroy()
+    end
+    function self:preferences() return {Scale=self.UserScale,Collapsed=self.Collapsed} end
+    function self:applyPreferences(values)
+        self.UserScale=values.Scale;self.Collapsed=values.Collapsed
+        self.CollapseDue=nil;body.Visible=not self.Collapsed
+        body.GroupTransparency=self.Collapsed and 1 or 0;resize.Visible=not self.Collapsed
+        collapse.Text=self.Collapsed and "+" or "−"
+        local channels=self.Motion[window]
+        if channels and channels.height then channels.height:Cancel() end
+        channels=self.Motion[body];if channels and channels.fade then channels.fade:Cancel() end
+        window.Size=UDim2.fromOffset(340,self.Collapsed and 46 or fullHeight)
+        fit(false)
     end
     fit(false)
     local p=window.Position;window.Position=UDim2.new(p.X.Scale,p.X.Offset,p.Y.Scale,p.Y.Offset+14)

@@ -1,17 +1,27 @@
 local Actions={}
 function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
     local self={Doors=setmetatable({},{__mode="k"}),Generations=setmetatable({},{__mode="k"}),Ready=false,Destroyed=false,Scanned=0,
-        Stack={{Node=world}},Pending={},NextSweep=0,Contexts={}}
+        Stack={{Node=world}},Pending={},NextSweep=0,Contexts={},Revision=0,
+        AppearedAt=setmetatable({},{__mode="k"}),AddedAt=setmetatable({},{__mode="k"})}
     local function index(o)
         if o:IsDescendantOf(world) and core.isDoor(o,world) and not self.Doors[o] then
             self.Doors[o]=true;self.Generations[o]=(self.Generations[o] or 0)+1
+            -- Initial-world doors are exempt. Events during the initial sweep still
+            -- represent newly replicated doors and retain their original arrival time.
+            self.AppearedAt[o]=self.AddedAt[o] or (self.Ready and os.clock() or false)
+            self.AddedAt[o]=nil;self.Revision=self.Revision+1
         end
     end
     register(world.DescendantAdded:Connect(function(o)
         -- Constant-time event callback. Ancestor inspection runs in the budgeted worker.
-        if not self.Destroyed and o:IsA("BasePart") and o.Name:lower()=="doorinnertouch" then self.Pending[o]=true end
+        if not self.Destroyed and o:IsA("BasePart") then
+            self.AddedAt[o]=os.clock()
+            if o.Name:lower()=="doorinnertouch" then self.Pending[o]=true end
+        end
     end))
-    register(world.DescendantRemoving:Connect(function(o) self.Doors[o]=nil;self.Pending[o]=nil end))
+    register(world.DescendantRemoving:Connect(function(o)
+        self.Doors[o]=nil;self.Pending[o]=nil;self.AppearedAt[o]=nil;self.AddedAt[o]=nil
+    end))
     function self:serviceIndex()
         if self.Destroyed then return end
         local began=os.clock();local work=0
@@ -47,6 +57,10 @@ function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
         end
     end
     function self:generation(door) return self.Generations[door] or 0 end
+    function self:waitRemaining(door,delay,now)
+        local arrived=self.AppearedAt[door]
+        return type(arrived)=="number" and math.max(0,arrived+delay-(now or os.clock())) or 0
+    end
     function self:doors()
         if not self.Ready then return {} end
         local found={}

@@ -55,15 +55,16 @@ eq(logs[#logs]:find('Возврат не выполнен',1,true)~=nil,true);ac
 -- No acknowledgement must not mark success after mouse-up; bounded retries finish.
 app.Confirmed={};app.Visited={};events={};app:attempt(true)
 for i=1,100 do t=t+.1;app:step();if not app.Busy then break end end
-eq(app.Busy,false);eq(app.Visited[part],true);eq(app.Confirmed[part],nil)
+eq(app.Busy,false);eq(app.Visited[part],nil);eq(app.RetryDoor,part);eq(app.Confirmed[part],nil)
 local downs=0;for _,e in ipairs(events)do if e=='down'then downs=downs+1 end end;eq(downs,2)
 -- An unknown local effect is tentative and suppresses duplicate clicks.
 app:attempt(true)
 for i=1,20 do t=t+.1;app:step();if app.Phase=='listen'then break end end
 actions.candidate={Name='Sound',Id='unknown'}
 t=t+1.9;app:step();eq(app.Phase,'return');eq(app.Confirmed[part],nil)
-t=t+.31;app:step();eq(app.Busy,false);actions.candidate=nil
--- Nearest eligible object selection and expiry.
+t=t+.31;app:step();eq(app.Busy,false);eq(app.RetryDoor,part);actions.candidate=nil
+-- Start a new run before testing nearest eligible object selection.
+app:setAuto(false)
 local second={distance=2};part.distance=20;doors={part,second};app.Cooldown={};app.Visited={}
 app:setAuto(true);app:step();eq(app.Door,second);complete();app:step();t=t+2.1;app:step();eq(app.Door,part)
 app:setAuto(false);app:Destroy();app:Destroy();eq(app.Destroyed,true);eq(app:attempt(true),false)
