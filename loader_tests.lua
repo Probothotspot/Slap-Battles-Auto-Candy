@@ -158,7 +158,7 @@ local f=assert(io.open("auto_candy.lua","rb"));local cached=f:read("*a");f:close
 failed=true;before=downloads
 _G.AutoCandyResumeSource={Job=game.JobId,Source=cached}
 report=dofile("loader.lua");pending[#pending]()
-eq(report.State,"ready");eq(downloads,before);eq(report.App.Version,"1.6.1")
+eq(report.State,"ready");eq(downloads,before);eq(report.App.Version,"1.6.2")
 eq(report.Source,cached);eq(_G.AutoCandyResumeSource,nil);report.App:Destroy()
 -- A wrong job or old header cannot silently execute the resume cache.
 _G.AutoCandyResumeSource={Job="other",Source=cached}

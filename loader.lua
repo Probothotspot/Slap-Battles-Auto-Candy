@@ -1,11 +1,11 @@
 -- Draw first, fetch on a separate task, index only after the main GUI mounts.
-local URL="https://raw.githubusercontent.com/Probothotspot/Slap-Battles-Auto-Candy/main/auto_candy.lua?v=1.6.1"
+local URL="https://raw.githubusercontent.com/Probothotspot/Slap-Battles-Auto-Candy/main/auto_candy.lua?v=1.6.2"
 local env=type(getgenv)=="function" and getgenv() or _G
 local old=env.AutoCandyLoading
 if type(old)=="table" and type(old.Destroy)=="function" then old:Destroy() end
 local resume=env.AutoCandyResumeSource;env.AutoCandyResumeSource=nil
 local previous=env.SlapBattlesAutoCandy
-if type(previous)=="table" and type(previous.Destroy)=="function" then previous:Destroy() end
+if type(previous)=="table" and type(previous.Destroy)=="function" then previous:Destroy(previous.JobId~=nil and previous.JobId~=game.JobId) end
 local player=game:GetService("Players").LocalPlayer
 assert(player,"Auto Candy: client required")
 local parent=player:WaitForChild("PlayerGui",10);assert(parent,"Auto Candy: PlayerGui unavailable")
@@ -37,7 +37,7 @@ task.spawn(function()
         assert(type(loadstring)=="function","loadstring unavailable")
         local source
         if type(resume)=="table" and resume.Job==game.JobId and type(resume.Source)=="string" and
-            resume.Source:sub(1,#"-- Auto Candy v1.6.1 |")=="-- Auto Candy v1.6.1 |" then
+            resume.Source:sub(1,#"-- Auto Candy v1.6.2 |")=="-- Auto Candy v1.6.2 |" then
             source=resume.Source
         else source=game:HttpGet(URL) end
         if report.Destroyed or report.State~="loading" then return end

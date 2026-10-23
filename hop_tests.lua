@@ -20,7 +20,7 @@ local c={App=app,Actions=actions,PlaceId=10,JobId='current',UserId=123,Clock=fun
  Spawn=function(fn)fn()end,Teleport=function(job)jobs[#jobs+1]=job end,UrlEncode=function(v)return v end}
 local h=Hop.new(c);eq(h.ShouldResume,false);eq(h:setEnabled(true),true);eq(app.Auto,true);eq(app.HopMode,true)
 h:step();eq(#jobs,0);now=20;h:step();eq(#jobs,0);now=29;h:step();eq(#jobs,0)
-now=30;h:step();eq(#jobs,1);eq(jobs[1],'next');eq(h.Pending,true);eq(#queued,1);eq(stored.ResumeJobId,'next')
+now=30;h:step();eq(#jobs,1);eq(jobs[1],'next');eq(h.Pending,true);eq(#queued,1);eq(stored.ResumeJobId,'next');local firstToken=stored.ResumeToken
 h:step();eq(#jobs,1)
 -- A failed teleport clears the resume target, backs off and chooses another job.
 h:failed('full since query');eq(h.Pending,false);eq(stored.ResumeJobId,nil);eq(h.Failures,1)
@@ -62,15 +62,16 @@ local denied=Hop.new(c);eq(denied:setEnabled(true),false);eq(denied.Enabled,fals
 c.Write=originalWrite
 -- The actual queued program checks the persisted switch and avoids duplicate boot.
 local code=queued[1];local boots=0
-stored={Schema=1,Enabled=true,PlaceId=10,UserId=123,SavedAt=epoch,ResumeJobId='next'}
+stored={Schema=1,Enabled=true,PlaceId=10,UserId=123,SavedAt=epoch,ResumeJobId='next',ResumeToken=firstToken}
 local originalTime=os.time;os.time=function()return epoch end
 readfile=function()return stored end
-local player={UserId=123,FindFirstChild=function()return{}end}
+local playerGui={}
+local player={UserId=123,FindFirstChild=function()return playerGui end}
 game={PlaceId=10,JobId='next',GetService=function(_,name)
  if name=='Players'then return{LocalPlayer=player}end
  return{JSONDecode=function(_,v)return v end}
 end,IsLoaded=function()return true end,HttpGet=function()return 'fixed loader fixture'end}
-loadstring=function()return function()boots=boots+1;return{State='ready',App={Gui={Parent={}}}}end end
+loadstring=function()return function()boots=boots+1;local report={State='ready',App={Ready=true,JobId='next',PlaceId=10,UserId=123,Gui={Parent=playerGui}}};_G.SlapBattlesAutoCandy=report.App;return report end end
 local resumeClock=0;local originalClock=os.clock;os.clock=function()return resumeClock end
 task={spawn=function(fn)fn()end,wait=function(dt)resumeClock=resumeClock+(dt or .1)end}
 warn=function()end

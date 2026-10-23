@@ -145,7 +145,7 @@ local function find(n)return assert(app.Gui:FindFirstChild(n,true),n)end
 local function tick(dt)time=time+dt;hb:Fire(dt)end
 local function stopKey(k)input.InputBegan:Fire({UserInputType='Keyboard',KeyCode=k},false)end
 eq(find('DoorDelay').Text,'1');eq(find('StopKey').Text,'T');eq(app.App.Auto,false)
-eq(find('Window').Size.Y.Offset,510)
+eq(find('Window').Size.Y.Offset,544)
 find('DoorDelay').Text='2,5';find('DoorDelay').FocusLost:Fire(true)
 eq(app.App.NewDoorDelay,2.5);eq(find('DoorDelay').Text,'2.5')
 local before=writeCount
@@ -177,7 +177,7 @@ tick(.1);eq(app.App.Busy,true)
 find('ResetDefaults').Activated:Fire()
 eq(app.App.Busy,false);eq(app.App.Auto,false);eq(app.Hopper.Enabled,false)
 eq(app.App.NewDoorDelay,1);eq(find('DoorDelay').Text,'1');eq(find('StopKey').Text,'T')
-eq(find('Window'):FindFirstChildOfClass('UIScale').Scale,1);eq(find('Window').Size.Y.Offset,510)
+eq(find('Window'):FindFirstChildOfClass('UIScale').Scale,1);eq(find('Window').Size.Y.Offset,544)
 eq(root.Position.X,20)
 app=dofile('auto_candy.lua');eq(app.App.Auto,false);eq(app.Hopper.Enabled,false);eq(app.App.NewDoorDelay,1)
 eq(find('StopKey').Text,'T');eq(app.Settings.Values.Collapsed,false);eq(app.Settings.Values.Scale,1)

@@ -11,12 +11,13 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
         if type(old)=="table" and type(old.Destroy)=="function" then old:Destroy() end
     end
     local key="SlapBattlesAutoCandy"
-    if type(env[key])=="table" and type(env[key].Destroy)=="function" then env[key]:Destroy() end
+    if type(env[key])=="table" and type(env[key].Destroy)=="function" then env[key]:Destroy(env[key].JobId~=nil and env[key].JobId~=game.JobId) end
     local connections={};local app,view,actions,hopper,settings;local destroyed=false
     local function register(c) connections[#connections+1]=c;return c end
-    local handle={Version="1.6.1"}
+    local handle={Version="1.6.2",JobId=game.JobId,PlaceId=game.PlaceId,UserId=player.UserId,Ready=false}
+    handle.SessionId=tostring(handle.JobId)..":"..tostring(os.clock())..":"..tostring({})
     local function dispose(preserve)
-        if destroyed then return end;destroyed=true
+        if destroyed then return end;destroyed=true;handle.Ready=false
         if hopper then hopper:Destroy(preserve==true) end
         if app then app:Destroy() end
         if actions then actions:Destroy() end
@@ -24,18 +25,22 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
         if view then view:Destroy() end
         if env[key]==handle then env[key]=nil end
     end
-    function handle:Destroy() dispose(false) end
+    function handle:Destroy(preserve) dispose(preserve==true and handle.JobId~=game.JobId) end
     env[key]=handle
     local ok,err=pcall(function()
         view=Gui.mount(player,register,{Hotkey=true})
         local http=game:GetService("HttpService")
+        local guidOK,guid=pcall(function()return http:GenerateGUID(false)end)
+        if guidOK and type(guid)=="string" then handle.SessionId=guid end
         settings=Settings.new({UserId=player.UserId,Read=type(readfile)=="function" and readfile or env.readfile,
             Write=type(writefile)=="function" and writefile or env.writefile,IsFile=isfile or env.isfile,
             Encode=function(v) return http:JSONEncode(v) end,Decode=function(v) return http:JSONDecode(v) end,
             Log=function(s) view:log(s) end})
         handle.Settings=settings
         view:applyPreferences(settings.Values)
-        view.OnPreferencesChanged=function() settings:set(view:preferences()) end
+        view.OnPreferencesChanged=function()
+            if not destroyed and env[key]==handle and game.JobId==handle.JobId then settings:set(view:preferences()) end
+        end
         actions=Actions.new(player,workspace,Core,register,function(s) view:log(s) end,function(show) view:clickVisibility(show) end,Feedback)
         app=Core.new(actions,os.clock,function(s) view:log(s) end)
         handle.App=app;handle.Gui=view.Gui
@@ -61,9 +66,29 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
         local write=type(writefile)=="function" and writefile or env.writefile
         local loading=env.AutoCandyLoading
         local send=request or http_request or (type(syn)=="table" and syn.request)
+        local traceFile="AutoCandyTrace-"..tostring(player.UserId).."-"..tostring(game.PlaceId)..".json"
+        local events={}
+        if type(read)=="function" then
+            local good,old=pcall(function() return http:JSONDecode(read(traceFile)) end)
+            if good and type(old)=="table" and type(old.Events)=="table" then
+                for i=math.max(1,#old.Events-39),#old.Events do
+                    local e=old.Events[i]
+                    if type(e)=="table" and type(e.Stage)=="string" and type(e.Job)=="string" then
+                        events[#events+1]={Stage=e.Stage:sub(1,64),Job=e.Job:sub(1,128),At=tonumber(e.At),Detail=tostring(e.Detail or ""):sub(1,512)}
+                    end
+                end
+            end
+        end
+        local function observe(stage,detail)
+            if env[key]~=handle or game.JobId~=handle.JobId then return end
+            events[#events+1]={Stage=stage,Detail=tostring(detail or ""):sub(1,512),Job=handle.JobId,At=os.time()}
+            if #events>50 then table.remove(events,1) end
+            if type(write)=="function" then pcall(function() write(traceFile,http:JSONEncode({Events=events})) end) end
+        end
         hopper=ServerHop.new({App=app,Actions=actions,PlaceId=game.PlaceId,JobId=game.JobId,UserId=player.UserId,
             Log=function(s) view:log(s) end,Queue=queue,QueueName=queueName,Read=read,Write=write,Spawn=task.spawn,Wait=task.wait,
-            Source=type(loading)=="table" and loading.Source or nil,
+            Source=type(loading)=="table" and loading.Source or nil,SessionId=handle.SessionId,Observe=observe,
+            Active=function()return env[key]==handle and game.JobId==handle.JobId end,
             Encode=function(v) return http:JSONEncode(v) end,Decode=function(v) return http:JSONDecode(v) end,
             UrlEncode=function(v) return http:UrlEncode(v) end,
             Get=function(url)
@@ -82,6 +107,45 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
             "Автозапуск: очередь перехода не найдена")
         local resumed=env.AutoCandyResumeStatus
         if type(resumed)=="table" and resumed.Target==game.JobId then view:log("Загрузка после перехода: GUI открыт") end
+        local function doorPath(door)
+            if not door then return nil end
+            local good,path=pcall(function()return door:GetFullName()end)
+            return good and path or tostring(door)
+        end
+        function handle:GetDiagnostics()
+            local status=env.AutoCandyResumeStatus
+            if type(status)~="table" then
+                pcall(function() status=http:JSONDecode(read("AutoCandyResumeStatus-"..player.UserId.."-"..handle.PlaceId..".json")) end)
+            end
+            local saved
+            pcall(function()
+                local state=http:JSONDecode(read(hopper.StateFile))
+                saved={OwnerSession=state.OwnerSession,OwnerJob=state.OwnerJobId,Enabled=state.Enabled,
+                    Target=state.ResumeJobId,Token=state.ResumeToken,SavedAt=state.SavedAt}
+            end)
+            local boot
+            if type(status)=="table" then boot={Phase=status.Phase,Target=status.Target,Token=status.Token,Detail=status.Detail,Attempt=status.Attempt} end
+            return {Version=handle.Version,Job=handle.JobId,Place=handle.PlaceId,Session=handle.SessionId,Ready=handle.Ready,
+                CurrentGui=handle.Gui and handle.Gui.Parent==player:FindFirstChild("PlayerGui"),
+                LastHeartbeatAge=handle.LastHeartbeat and os.clock()-handle.LastHeartbeat,
+                Auto=app.Auto,Phase=app.Phase,Busy=app.Busy,IndexReady=actions.Ready,Scanned=actions.Scanned,
+                Door=doorPath(app.Door),RetryDoor=doorPath(app.RetryDoor),RetryIn=app.RetryAt and math.max(0,app.RetryAt-os.clock()),
+                Hop={Enabled=hopper.Enabled,Stage=hopper.Stage,Reason=hopper.Reason,StageAge=hopper.StageSince and os.clock()-hopper.StageSince,
+                    Failures=hopper.Failures,Pending=hopper.Pending,Searching=hopper.Searching,RetryAfter=math.max(0,hopper.NextTry-os.clock()),Target=hopper.Target,Token=hopper.Token,Queue=queueName,StateFile=hopper.StateFile},
+                Resume=boot,SavedState=saved,Events=events,RecentLogs=view.Lines}
+        end
+        register(view.DiagnosticButton.Activated:Connect(function()
+            local good,report=pcall(function()return http:JSONEncode(handle:GetDiagnostics())end)
+            if not good then view:log("Отчёт: "..tostring(report));return end
+            local clipboard=type(setclipboard)=="function" and setclipboard or env.setclipboard
+            if type(clipboard)=="function" then
+                local copied,result=pcall(clipboard,report)
+                if copied and result~=false then view:log("Диагностика скопирована");return end
+            end
+            local file="AutoCandyReport-"..player.UserId.."-"..handle.PlaceId..".json"
+            local saved,result=pcall(function()return write(file,report)end)
+            view:log(saved and result~=false and ("Отчёт сохранён: "..file) or "Буфер и сохранение отчёта недоступны")
+        end))
         local input=game:GetService("UserInputService")
         local keyNames={}
         for _,code in ipairs(Enum.KeyCode:GetEnumItems()) do
@@ -90,7 +154,9 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
         local stopKey=keyNames[settings.Values.StopKey:lower()] or Enum.KeyCode.T
         view.StopKey.Text=stopKey.Name
         settings:set({StopKey=stopKey.Name})
-        local function saveModes() settings:set({Auto=app.Auto,ServerHop=hopper.Enabled}) end
+        local function saveModes()
+            if not destroyed and env[key]==handle and game.JobId==handle.JobId then settings:set({Auto=app.Auto,ServerHop=hopper.Enabled}) end
+        end
         local function stop()
             if hopper.Enabled or hopper.Pending or hopper.Searching then hopper:setEnabled(false) end
             app:setAuto(false);saveModes()
@@ -160,6 +226,8 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
         register(view.Gui.Destroying:Connect(function() dispose(hopper.Pending and hopper.Enabled) end))
         local nextTick=0
         register(game:GetService("RunService").Heartbeat:Connect(function()
+            if env[key]~=handle or game.JobId~=handle.JobId or game:GetService("Players").LocalPlayer~=player then dispose(true);return end
+            handle.LastHeartbeat=os.clock()
             local good,problem=pcall(function()
                 actions:serviceIndex()
                 if os.clock()<nextTick then return end
@@ -169,15 +237,17 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
             end)
             if not good then
                 if hopper.Enabled then hopper:setEnabled(false) end
+                observe("runtime_error",tostring(problem))
                 app:finish("Ошибка: "..tostring(problem),false);app:setAuto(false);view:log(tostring(problem))
             end
             if not destroyed then saveModes();view:update(app,hopper,actions) end
         end))
-        if settings.Values.ServerHop or (not settings.Loaded and hopper.ShouldResume) then
+        if hopper.ShouldResume or settings.Values.ServerHop then
             view:log("Восстановление смены серверов")
             hopper:setEnabled(true)
         elseif settings.Values.Auto then app:setAuto(true) end
         saveModes();view:update(app,hopper,actions)
+        handle.Ready=true;observe("ready","main GUI mounted")
         view:log("Auto Candy готов. Настройки "..(settings.Loaded and "загружены" or "по умолчанию"))
     end)
     if not ok then dispose(false);error("[AutoCandy] "..tostring(err)) end

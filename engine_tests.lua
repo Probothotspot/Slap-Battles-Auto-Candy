@@ -141,7 +141,7 @@ eq(find('Backdrop'):FindFirstChildOfClass('UIGradient')~=nil,true)
 eq(find('Window'):FindFirstChildOfClass('UIGradient'),nil)
 find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,false);eq(find('Window').Size.Y.Offset,46)
 eq(find('Title').Visible,true);eq(find('Header').Visible,true)
-find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,true);eq(find('Window').Size.Y.Offset,510)
+find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,true);eq(find('Window').Size.Y.Offset,544)
 -- Rapid reversal must not let the previous collapse hide the reopened body.
 find('Collapse').Activated:Fire();find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,true)
 find('Teleport').MouseEnter:Fire();eq(find('Teleport'):FindFirstChildOfClass('UIScale').Scale,1.025)

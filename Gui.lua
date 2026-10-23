@@ -5,7 +5,7 @@ local function make(class,props,parent)
 end
 local function round(o,n) make("UICorner",{CornerRadius=UDim.new(0,n or 10)},o) end
 function Gui.mount(player,register,options)
-    local keyRow=options and options.Hotkey and 108 or 0
+    local keyRow=options and options.Hotkey and 142 or 0
     local fullHeight=402+keyRow
     local self={Lines={},Collapsed=false,Destroyed=false,Tweens={},Motion={},UserScale=1,Buttons={}}
     local tween=game:GetService("TweenService")
@@ -84,6 +84,8 @@ function Gui.mount(player,register,options)
         round(self.DoorDelay,8)
         self.ResetButton=button("ResetDefaults","Сброс по умолчанию",15,196,310,30,body)
         self.ResetButton.TextSize=12
+        self.DiagnosticButton=button("CopyDiagnostics","Копировать диагностику",15,230,310,30,body)
+        self.DiagnosticButton.TextSize=12
     end
     self.State=text(body,"State","Ожидание",15,130+keyRow,310,30,12)
     text(body,"LogTitle","ЛОГИ",15,166+keyRow,310,18,10)
@@ -121,7 +123,8 @@ function Gui.mount(player,register,options)
             self.BusyShown=activity
             self.TeleportButton.Text=activity=="busy" and "Выполняется…" or activity=="retry" and "Повтор через 3 с" or activity=="delay" and "Ожидание…" or "Телепорт"
         end
-        local state=actions and not actions.Ready and ("Индексация в фоне: "..actions.Scanned.." объектов") or self.LastMessage or "Ожидание"
+        local state=hopper and hopper.Enabled and hopper.Stage=="blocked" and
+            ("Смена сервера ждёт: "..tostring(hopper.Reason)) or actions and not actions.Ready and ("Индексация в фоне: "..actions.Scanned.." объектов") or self.LastMessage or "Ожидание"
         if self.LastShownState~=state then self.LastShownState=state;self.State.Text=state end
     end
     function self:clickVisibility(show)
