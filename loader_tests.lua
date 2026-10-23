@@ -28,6 +28,7 @@ vm.__sub=function(a,b)return Vector3.new(a.X-b.X,a.Y-b.Y,a.Z-b.Z)end
 vm.__unm=function(a)return Vector3.new(-a.X,-a.Y,-a.Z)end
 vm.__mul=function(a,b)if type(a)=='number'then a,b=b,a end;return Vector3.new(a.X*b,a.Y*b,a.Z*b)end
 Vector3.zero=Vector3.new(0,0,0)
+Vector2={new=function(x,y)return{X=x,Y=y}end}
 local cm={}
 CFrame={new=function(x,y,z)
  local p=type(x)=='table'and x or Vector3.new(x or 0,y or 0,z or 0)
@@ -54,7 +55,7 @@ mt.__index=function(o,k)
  if methods[k]then return methods[k]end
  if k=='AbsoluteSize'then return{X=1000,Y=800}end
  if k=='Activated'or k=='InputBegan'or k=='InputChanged'or k=='InputEnded'or k=='WindowFocusReleased'or k=='Destroying'
- or k=='DescendantAdded'or k=='DescendantRemoving'then
+ or k=='DescendantAdded'or k=='DescendantRemoving'or k=='MouseEnter'or k=='MouseLeave'or k=='Played'then
   o.signals[k]=o.signals[k]or signal();return o.signals[k]
  end
  return o.p[k]
@@ -95,14 +96,24 @@ local doorContainer=Instance.new('Model');doorContainer.Name='Door';doorContaine
 local door=Instance.new('Part');door.Name='DoorInnerTouch';door.Size=Vector3.new(5,10,.2);door.CFrame=CFrame.new(0,5,0);door.Parent=doorContainer
 local camera={CFrame=CFrame.new(20,10,30),Focus=CFrame.new(),CameraType='Custom',CameraSubject=h}
 function camera:WorldToViewportPoint()return{X=500,Y=400,Z=5},true end
+function camera:WorldToScreenPoint()return{X=500,Y=436,Z=5},true end
 workspace.CurrentCamera=camera
 function workspace:Raycast(p)return{Position=Vector3.new(p.X,0,p.Z),Normal=Vector3.new(0,1,0)}end
 function workspace:GetPartBoundsInBox()return{}end
 local hb=signal();local input=Instance.new('UserInputService');local clicks={}
 local services={Players={LocalPlayer=player},UserInputService=input,RunService={Heartbeat=hb},TweenService={},VirtualInputManager={},HttpService={},TeleportService={TeleportInitFailed=signal()}}
-function services.TweenService:Create(o,_,props)
- return{Play=function()end,Cancel=function()end}
+local tweens={}
+function services.TweenService:Create(o,info,props)
+ local t={Object=o,Props=props,Duration=info[1]}
+ function t:Play()self.Played=true;if info[4]~=-1 then for k,v in pairs(props)do o[k]=v end end end
+ function t:Cancel()self.Cancelled=true end
+ tweens[#tweens+1]=t;return t
 end
+input.MouseBehavior='LockCenter'
+function input:GetMouseLocation()return Vector2.new(40,50)end
+function input:CreateVirtualInput()return self.Virtual end
+local moves={}
+function services.VirtualInputManager:SendMouseMoveEvent(x,y)moves[#moves+1]={X=x,Y=y}end
 function services.VirtualInputManager:SendMouseButtonEvent(x,y,_,down)
  clicks[#clicks+1]=down
  if self.Fail and down then error('fixture: mouse denied')end

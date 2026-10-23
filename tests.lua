@@ -15,15 +15,21 @@ function actions:capture() events[#events+1]='capture';return {Origin=origin} en
 function actions:approach(ctx,p) events[#events+1]='teleport';if self.failMove then error('move failure')end end
 function actions:valid()return not self.invalid,'removed'end
 function actions:aim()events[#events+1]='aim'end
+function actions:beginFeedback()self.heard=nil;self.candidate=nil;return self.methods or 2 end
+function actions:feedback()return self.heard,self.candidate,true end
+function actions:confirmed()events[#events+1]='confirmed'end
+function actions:prepareClick(_,_,index)events[#events+1]='prepare'..index;return 'method'..index end
 function actions:mouseDown()events[#events+1]='down';if self.failClick then error('input denied')end end
 function actions:mouseUp()events[#events+1]='up'end
 function actions:restore(ctx) events[#events+1]='restore';eq(ctx.Origin,origin);if self.failReturn then error('dead character')end end
 local app=Core.new(actions,function()return t end,function(s)logs[#logs+1]=s end)
 local function complete()
- t=t+.36;app:step();t=t+.13;app:step();t=t+.09;app:step();t=t+.41;app:step()
+ t=t+.36;app:step();t=t+.16;app:step();t=t+.21;app:step();t=t+.16;app:step();t=t+.13;app:step()
+ actions.heard={Name='Knock',Id='fixture'};app:step();t=t+.31;app:step();actions.heard=nil
 end
 eq(app:attempt(true),true);eq(app.Busy,true);eq(app:attempt(true),false)
-complete();eq(app.Busy,false);eq(table.concat(events,','),'capture,teleport,aim,down,up,restore')
+complete();eq(app.Busy,false);eq(table.concat(events,','),'capture,teleport,aim,up,prepare1,down,up,up,confirmed,restore')
+eq(app.Confirmed[part],true)
 -- Passive mode honours cooldown, manual mode can retry immediately.
 events={};app:setAuto(true);app:step();eq(app.Busy,false)
 eq(app:attempt(true),true);complete();eq(app.Busy,false)
@@ -34,16 +40,29 @@ eq(logs[#logs]:find('Нет существующих',1,true)~=nil,true)
 doors={part};app.Cooldown[part]=nil
 -- Cancellation after a mouse press restores input and origin through restore.
 app:setAuto(true);app:step();eq(app.Busy,true)
-t=t+.36;app:step();t=t+.13;app:step();eq(app.Phase,'pressed')
+t=t+.36;app:step();t=t+.16;app:step();t=t+.21;app:step();t=t+.16;app:step();eq(app.Phase,'pressed')
 app:setAuto(false);eq(app.Busy,false);eq(events[#events],'restore')
 -- Errors before/after teleport still restore the captured context.
 actions.failMove=true;eq(app:attempt(true),false);eq(app.Busy,false);eq(events[#events],'restore');actions.failMove=false
-actions.failClick=true;app:attempt(true);t=t+.36;app:step();t=t+.13;app:step()
+actions.failClick=true;app:attempt(true);t=t+.36;app:step();t=t+.16;app:step();t=t+.21;app:step();t=t+.16;app:step()
+eq(app.Busy,true);eq(app.ClickIndex,2)
+t=t+.21;app:step();t=t+.16;app:step();t=t+.16;app:step()
 eq(app.Busy,false);eq(events[#events],'restore');actions.failClick=false
 app:attempt(true);actions.invalid=true;app:step();eq(app.Busy,false);actions.invalid=false
 -- A failed return is logged, never reported as successful.
 actions.failReturn=true;app:attempt(true);app:finish();eq(app.Busy,false)
 eq(logs[#logs]:find('Возврат не выполнен',1,true)~=nil,true);actions.failReturn=false
+-- No acknowledgement must not mark success after mouse-up; bounded retries finish.
+app.Confirmed={};app.Visited={};events={};app:attempt(true)
+for i=1,100 do t=t+.1;app:step();if not app.Busy then break end end
+eq(app.Busy,false);eq(app.Visited[part],true);eq(app.Confirmed[part],nil)
+local downs=0;for _,e in ipairs(events)do if e=='down'then downs=downs+1 end end;eq(downs,2)
+-- An unknown local effect is tentative and suppresses duplicate clicks.
+app:attempt(true)
+for i=1,20 do t=t+.1;app:step();if app.Phase=='listen'then break end end
+actions.candidate={Name='Sound',Id='unknown'}
+t=t+1.9;app:step();eq(app.Phase,'return');eq(app.Confirmed[part],nil)
+t=t+.31;app:step();eq(app.Busy,false);actions.candidate=nil
 -- Nearest eligible object selection and expiry.
 local second={distance=2};part.distance=20;doors={part,second};app.Cooldown={}
 app:setAuto(true);app:step();eq(app.Door,second);complete();app:step();t=t+2.1;app:step();eq(app.Door,part)

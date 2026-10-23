@@ -1,5 +1,5 @@
 local Actions={}
-function Actions.new(player,world,core,register,log,setClickVisibility)
+function Actions.new(player,world,core,register,log,setClickVisibility,Feedback)
     local self={Doors=setmetatable({},{__mode="k"}),Ready=false,Destroyed=false,Scanned=0,
         Stack={{Node=world}},Pending={}}
     local function index(o)
@@ -58,9 +58,14 @@ function Actions.new(player,world,core,register,log,setClickVisibility)
         local c,r,h=self:body(); assert(r,"Персонаж недоступен")
         assert(not h.Sit,"Выйди из сиденья перед запуском")
         local camera=world.CurrentCamera; assert(camera,"Камера недоступна")
-        local input=game:GetService("VirtualInputManager")
+        local _,input=pcall(game.GetService,game,"VirtualInputManager")
+        local userInput=game:GetService("UserInputService")
+        local virtualOK,virtual=pcall(function() return userInput:CreateVirtualInput() end)
+        local mouseOK,mouse=pcall(function() return userInput:GetMouseLocation() end)
         return {Character=c,Root=r,Humanoid=h,Origin=r.CFrame,Camera=camera,CameraCF=camera.CFrame,
-            CameraFocus=camera.Focus,CameraType=camera.CameraType,CameraSubject=camera.CameraSubject,Input=input}
+            CameraFocus=camera.Focus,CameraType=camera.CameraType,CameraSubject=camera.CameraSubject,
+            Input=type(input)~="string" and input or nil,UserInput=userInput,MouseBehavior=userInput.MouseBehavior,
+            OriginalMouse=mouseOK and mouse or nil,Virtual=virtualOK and virtual or nil}
     end
     local function pivot(context,cf)
         local c,r=context.Character,context.Root
@@ -115,20 +120,80 @@ function Actions.new(player,world,core,register,log,setClickVisibility)
         local view=ctx.Root.Position+Vector3.new(0,1.5,0)
         camera.CFrame=CFrame.lookAt(view,door.Position)
         camera.Focus=CFrame.new(door.Position)
+        ctx.UserInput.MouseBehavior=Enum.MouseBehavior.Default;ctx.MouseBehaviorChanged=true
         setClickVisibility(false); ctx.UIHidden=true
+    end
+    function self:beginFeedback(ctx,door)
+        local scope=door.Parent
+        while scope and scope~=world and scope.Name:lower()~="door" do scope=scope.Parent end
+        assert(scope and scope~=world,"Контейнер Door исчез")
+        ctx.Scope=scope;ctx.Methods={}
+        if Feedback then ctx.Monitor=Feedback.new(scope) end
+        -- Only use a detector that actually exists on this door, never invent remotes.
+        local detector=door:FindFirstChildOfClass("ClickDetector") or scope:FindFirstChildOfClass("ClickDetector")
+        if detector and type(fireclickdetector)=="function" then
+            ctx.Methods[#ctx.Methods+1]={Name="ClickDetector",Detector=detector}
+        end
+        if ctx.Input then ctx.Methods[#ctx.Methods+1]={Name="VIM screen",Kind="screen"} end
+        if ctx.Virtual then ctx.Methods[#ctx.Methods+1]={Name="VirtualInput",Kind="virtual"} end
+        if ctx.Input then ctx.Methods[#ctx.Methods+1]={Name="VIM viewport",Kind="viewport"} end
+        for i,method in ipairs(ctx.Methods) do
+            if method.Name==self.PreferredBackend then table.remove(ctx.Methods,i);table.insert(ctx.Methods,1,method);break end
+        end
+        assert(#ctx.Methods>0,"Нет доступного способа ввода")
+        log("Проверка клика: "..#ctx.Methods.." способов; слушаю Sound выбранной двери")
+        return #ctx.Methods
+    end
+    function self:confirmed(ctx) self.PreferredBackend=ctx.Method and ctx.Method.Name end
+    function self:feedback(ctx)
+        if not ctx.Monitor then return nil end
+        ctx.Monitor:step()
+        if ctx.Monitor.Ready and not ctx.MonitorLogged then
+            ctx.MonitorLogged=true
+            log(ctx.Monitor.Count>0 and ("Звуков в Door: "..ctx.Monitor.Count)
+                or "В Door нет Sound: локальный слушатель не сможет подтвердить стук")
+        end
+        return ctx.Monitor.Result,ctx.Monitor.Candidate,ctx.Monitor.Ready
+    end
+    function self:prepareClick(ctx,door,index)
+        local method=assert(ctx.Methods[index],"Способы клика закончились")
+        ctx.Method=method
+        assert(world.CurrentCamera==ctx.Camera,"Камера сменилась")
+        if type(isrbxactive)=="function" then assert(isrbxactive(),"Окно Roblox не в фокусе") end
+        if method.Detector then return method.Name end
+        local point,visible
+        if method.Kind=="viewport" then point,visible=ctx.Camera:WorldToViewportPoint(door.Position)
+        else point,visible=ctx.Camera:WorldToScreenPoint(door.Position) end
+        assert(visible and point.Z>0,"Дверь не попала в экран")
+        ctx.Mouse={X=math.floor(point.X+.5),Y=math.floor(point.Y+.5)}
+        if method.Kind=="virtual" then
+            ctx.Virtual:SendMousePosition(Vector2.new(ctx.Mouse.X,ctx.Mouse.Y))
+        else
+            ctx.Input:SendMouseMoveEvent(ctx.Mouse.X,ctx.Mouse.Y,game)
+        end
+        return method.Name
     end
     function self:mouseDown(ctx,door)
         assert(world.CurrentCamera==ctx.Camera,"Камера сменилась")
         assert((ctx.Root.Position-door.Position).Magnitude<20,"Сервер отменил ТП или дверь переместилась")
-        local point,visible=ctx.Camera:WorldToViewportPoint(door.Position)
-        assert(visible and point.Z>0,"Дверь не попала в экран")
-        ctx.Mouse={X=point.X,Y=point.Y}; ctx.MouseHeld=true
-        ctx.Input:SendMouseButtonEvent(point.X,point.Y,0,true,game,0)
+        if ctx.Monitor then ctx.Monitor:arm() end
+        local method=ctx.Method
+        if method.Detector then
+            assert(method.Detector:IsDescendantOf(ctx.Scope),"ClickDetector исчез")
+            fireclickdetector(method.Detector)
+        else
+            ctx.MouseHeld=true
+            if method.Kind=="virtual" then
+                ctx.Virtual:SendMouseButton(Vector2.new(ctx.Mouse.X,ctx.Mouse.Y),Enum.UserInputType.MouseButton1,true,0)
+            else ctx.Input:SendMouseButtonEvent(ctx.Mouse.X,ctx.Mouse.Y,0,true,game,0) end
+        end
     end
     function self:mouseUp(ctx)
         if ctx.MouseHeld then
             local m=ctx.Mouse
-            ctx.Input:SendMouseButtonEvent(m.X,m.Y,0,false,game,0)
+            if ctx.Method.Kind=="virtual" then
+                ctx.Virtual:SendMouseButton(Vector2.new(m.X,m.Y),Enum.UserInputType.MouseButton1,false,0)
+            else ctx.Input:SendMouseButtonEvent(m.X,m.Y,0,false,game,0) end
             ctx.MouseHeld=false
         end
     end
@@ -139,6 +204,15 @@ function Actions.new(player,world,core,register,log,setClickVisibility)
             local ok,err=pcall(fn); if not ok then problems[#problems+1]=tostring(err) end
         end
         attempt(function() self:mouseUp(ctx) end)
+        if ctx.Monitor then attempt(function() ctx.Monitor:Destroy() end) end
+        if ctx.MouseBehaviorChanged then attempt(function() ctx.UserInput.MouseBehavior=ctx.MouseBehavior end) end
+        if ctx.OriginalMouse and ctx.Method and not ctx.Method.Detector then
+            attempt(function()
+                local p=ctx.OriginalMouse
+                if ctx.Method.Kind=="virtual" then ctx.Virtual:SendMousePosition(p)
+                else ctx.Input:SendMouseMoveEvent(p.X,p.Y,game) end
+            end)
+        end
         if ctx.CameraChanged then
             attempt(function()
                 if world.CurrentCamera==ctx.Camera then

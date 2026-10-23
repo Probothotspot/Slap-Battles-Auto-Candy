@@ -1,6 +1,6 @@
 -- Bundled by build.py into auto_candy.lua; no runtime module dependencies.
 local Main={}
-function Main.start(Core,Actions,Gui,ServerHop)
+function Main.start(Core,Actions,Gui,ServerHop,Feedback)
     local players=game:GetService("Players")
     local player=players.LocalPlayer;assert(player,"Auto Candy requires a client player")
     local env=_G
@@ -9,7 +9,7 @@ function Main.start(Core,Actions,Gui,ServerHop)
     if type(env[key])=="table" and type(env[key].Destroy)=="function" then env[key]:Destroy() end
     local connections={};local app,view,actions,hopper;local destroyed=false
     local function register(c) connections[#connections+1]=c;return c end
-    local handle={Version="1.1.1"}
+    local handle={Version="1.2.0"}
     local function dispose(preserve)
         if destroyed then return end;destroyed=true
         if hopper then hopper:Destroy(preserve==true) end
@@ -23,7 +23,7 @@ function Main.start(Core,Actions,Gui,ServerHop)
     env[key]=handle
     local ok,err=pcall(function()
         view=Gui.mount(player,register)
-        actions=Actions.new(player,workspace,Core,register,function(s) view:log(s) end,function(show) view:clickVisibility(show) end)
+        actions=Actions.new(player,workspace,Core,register,function(s) view:log(s) end,function(show) view:clickVisibility(show) end,Feedback)
         app=Core.new(actions,os.clock,function(s) view:log(s) end)
         handle.App=app;handle.Gui=view.Gui
         local http=game:GetService("HttpService")
@@ -50,17 +50,25 @@ function Main.start(Core,Actions,Gui,ServerHop)
             if p==player and hopper.Pending and placeId==game.PlaceId then hopper:failed(message) end
         end))
         register(view.AutoButton.Activated:Connect(function()
+            if view.Closing then return end
             if app.Auto and hopper.Enabled then hopper:setEnabled(false) end
             app:setAuto(not app.Auto);view:update(app,hopper,actions)
         end))
         register(view.HopButton.Activated:Connect(function()
+            if view.Closing then return end
             hopper:setEnabled(not hopper.Enabled);view:update(app,hopper,actions)
         end))
         register(view.TeleportButton.Activated:Connect(function()
+            if view.Closing then return end
             if app.Busy or hopper.Pending or hopper.Searching then view:log("Дождись завершения текущей операции");return end
             app:attempt(true);view:update(app,hopper,actions)
         end))
-        register(view.CloseButton.Activated:Connect(function() dispose(false) end))
+        register(view.CloseButton.Activated:Connect(function()
+            if view.Closing then return end
+            -- Stop input and save mode-off immediately; only the window fade is delayed.
+            hopper:setEnabled(false);app:setAuto(false)
+            view:closeAnimated(function() dispose(false) end)
+        end))
         -- Roblox destroys the old GUI during a pending server transition. Preserve
         -- the queued resume only for that path; explicit close always disables it.
         register(view.Gui.Destroying:Connect(function() dispose(hopper.Pending and hopper.Enabled) end))

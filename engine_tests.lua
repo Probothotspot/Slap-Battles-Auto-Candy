@@ -28,6 +28,7 @@ vm.__sub=function(a,b)return Vector3.new(a.X-b.X,a.Y-b.Y,a.Z-b.Z)end
 vm.__unm=function(a)return Vector3.new(-a.X,-a.Y,-a.Z)end
 vm.__mul=function(a,b)if type(a)=='number'then a,b=b,a end;return Vector3.new(a.X*b,a.Y*b,a.Z*b)end
 Vector3.zero=Vector3.new(0,0,0)
+Vector2={new=function(x,y)return{X=x,Y=y}end}
 local cm={}
 CFrame={new=function(x,y,z)
  local p=type(x)=='table'and x or Vector3.new(x or 0,y or 0,z or 0)
@@ -54,7 +55,7 @@ mt.__index=function(o,k)
  if methods[k]then return methods[k]end
  if k=='AbsoluteSize'then return{X=1000,Y=800}end
  if k=='Activated'or k=='InputBegan'or k=='InputChanged'or k=='InputEnded'or k=='WindowFocusReleased'or k=='Destroying'
- or k=='DescendantAdded'or k=='DescendantRemoving'then
+ or k=='DescendantAdded'or k=='DescendantRemoving'or k=='MouseEnter'or k=='MouseLeave'or k=='Played'then
   o.signals[k]=o.signals[k]or signal();return o.signals[k]
  end
  return o.p[k]
@@ -93,19 +94,31 @@ local root=Instance.new('Part');root.Name='HumanoidRootPart';root.CFrame=CFrame.
 local h=Instance.new('Humanoid');h.Health=100;h.HipHeight=2;h.Parent=char
 local doorContainer=Instance.new('Model');doorContainer.Name='Door';doorContainer.Parent=workspace
 local door=Instance.new('Part');door.Name='DoorInnerTouch';door.Size=Vector3.new(5,10,.2);door.CFrame=CFrame.new(0,5,0);door.Parent=doorContainer
+local knock=Instance.new('Sound');knock.Name='DoorKnock';knock.SoundId='rbxassetid://fixture';knock.Volume=1;knock.Parent=door
 local camera={CFrame=CFrame.new(20,10,30),Focus=CFrame.new(),CameraType='Custom',CameraSubject=h}
 function camera:WorldToViewportPoint()return{X=500,Y=400,Z=5},true end
+function camera:WorldToScreenPoint()return{X=500,Y=436,Z=5},true end
 workspace.CurrentCamera=camera
 function workspace:Raycast(p)return{Position=Vector3.new(p.X,0,p.Z),Normal=Vector3.new(0,1,0)}end
 function workspace:GetPartBoundsInBox()return{}end
 local hb=signal();local input=Instance.new('UserInputService');local clicks={}
 local services={Players={LocalPlayer=player},UserInputService=input,RunService={Heartbeat=hb},TweenService={},VirtualInputManager={},HttpService={},TeleportService={TeleportInitFailed=signal()}}
-function services.TweenService:Create(o,_,props)
- return{Play=function()end,Cancel=function()end}
+local tweens={}
+function services.TweenService:Create(o,info,props)
+ local t={Object=o,Props=props,Duration=info[1]}
+ function t:Play()self.Played=true;if info[4]~=-1 then for k,v in pairs(props)do o[k]=v end end end
+ function t:Cancel()self.Cancelled=true end
+ tweens[#tweens+1]=t;return t
 end
+input.MouseBehavior='LockCenter'
+function input:GetMouseLocation()return Vector2.new(40,50)end
+function input:CreateVirtualInput()return self.Virtual end
+local moves={}
+function services.VirtualInputManager:SendMouseMoveEvent(x,y)moves[#moves+1]={X=x,Y=y}end
 function services.VirtualInputManager:SendMouseButtonEvent(x,y,_,down)
- clicks[#clicks+1]=down
+ clicks[#clicks+1]=down;self.LastY=y
  if self.Fail and down then error('fixture: mouse denied')end
+ if down and y==(self.ViewportOnly and 400 or 436) and not self.Silent then knock.Played:Fire() end
 end
 player.UserId=123
 game={PlaceId=100,JobId='current-test-job',GetService=function(_,n)return assert(services[n],n)end}
@@ -114,26 +127,61 @@ local app=dofile('auto_candy.lua');eq(app.Gui.Parent,pg);hb:Fire(.01)
 local function find(n)return assert(app.Gui:FindFirstChild(n,true),n)end
 local function tick(delta)time=time+delta;hb:Fire(delta)end
 local original=root.CFrame;local originalCamera=camera.CFrame
-find('Collapse').Activated:Fire();eq(find('Body').Visible,false)
-find('Collapse').Activated:Fire();eq(find('Body').Visible,true)
+tick(.31);eq(find('Window').GroupTransparency,0)
+find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,false);eq(find('Window').Size.Y.Offset,46)
+find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,true);eq(find('Window').Size.Y.Offset,402)
+-- Rapid reversal must not let the previous collapse hide the reopened body.
+find('Collapse').Activated:Fire();find('Collapse').Activated:Fire();tick(.27);eq(find('Body').Visible,true)
+find('Teleport').MouseEnter:Fire();eq(find('Teleport'):FindFirstChildOfClass('UIScale').Scale,1.025)
+find('Teleport').MouseLeave:Fire();eq(find('Teleport'):FindFirstChildOfClass('UIScale').Scale,1)
+local pointer={UserInputType='MouseButton1',Position=Vector3.new(0,0,0)}
+find('Resize').InputBegan:Fire(pointer)
+input.InputChanged:Fire({UserInputType='MouseMovement',Position=Vector3.new(68,0,0)})
+eq(find('Window'):FindFirstChildOfClass('UIScale').Scale,1.2)
+input.InputEnded:Fire(pointer)
+local function untilPhase(phase)
+ for _=1,160 do if app.App.Phase==phase then return end;tick(.1)end
+ error('phase timeout: '..phase..' from '..app.App.Phase)
+end
+local function finish()untilPhase('idle')end
 find('Teleport').Activated:Fire();eq(app.App.Busy,true)
 -- 2 studs away from the surface of the .2-thick door.
 eq(math.abs(root.Position.Z),2.1)
 tick(.36);eq(app.Gui.Enabled,false);eq(camera.CameraType,'Scriptable')
-tick(.13);eq(clicks[1],true)
-tick(.09);eq(clicks[2],false)
-tick(.41);eq(app.App.Busy,false);eq(app.Gui.Enabled,true)
+untilPhase('pressed');eq(clicks[1],true);eq(services.VirtualInputManager.LastY,436)
+finish();eq(clicks[2],false);eq(app.App.Busy,false);eq(app.Gui.Enabled,true)
+eq(app.App.Confirmed[door],true);eq(input.MouseBehavior,'LockCenter')
+eq(moves[#moves].X,40);eq(moves[#moves].Y,50)
 eq(root.Position.X,original.Position.X);eq(root.Position.Z,original.Position.Z)
 eq(camera.CFrame,originalCamera);eq(camera.CameraType,'Custom')
 -- A denied virtual click still restores the camera, UI and player.
 services.VirtualInputManager.Fail=true
-find('Teleport').Activated:Fire();tick(.36);tick(.13)
+find('Teleport').Activated:Fire();finish()
 eq(app.App.Busy,false);eq(app.Gui.Enabled,true);eq(root.Position.X,original.Position.X)
 eq(camera.CFrame,originalCamera);eq(clicks[#clicks],false)
 services.VirtualInputManager.Fail=false
+-- A silently ignored screen click is retried with viewport coordinates.
+services.VirtualInputManager.ViewportOnly=true
+local before=#clicks
+find('Teleport').Activated:Fire();finish()
+eq(#clicks-before,4);eq(app.App.Confirmed[door],true)
+-- Confirmed working backend is preferred on the next operation.
+before=#clicks;find('Teleport').Activated:Fire();finish();eq(#clicks-before,2)
+-- A valid alternate VirtualInput backend handles explicit VIM denial.
+services.VirtualInputManager.Fail=true
+input.Virtual={SendMousePosition=function()end,SendMouseButton=function(_,_,_,down) if down then knock.Played:Fire() end end}
+find('Teleport').Activated:Fire();finish();eq(app.App.Confirmed[door],true)
+input.Virtual=nil;services.VirtualInputManager.Fail=false
+-- Direct activation is only offered when the selected door has a detector.
+local detector=Instance.new('ClickDetector');detector.Parent=door
+local detectorCalls=0
+fireclickdetector=function(target)eq(target,detector);detectorCalls=detectorCalls+1;knock.Played:Fire()end
+before=#clicks;find('Teleport').Activated:Fire();finish();eq(detectorCalls,1);eq(#clicks,before)
+fireclickdetector=nil;detector:Destroy()
 -- Closing while a click is held releases it and returns before destruction.
-find('Teleport').Activated:Fire();tick(.36);tick(.13);eq(clicks[#clicks],true)
+find('Teleport').Activated:Fire();untilPhase('pressed');eq(clicks[#clicks],true)
 find('Close').Activated:Fire();eq(clicks[#clicks],false);eq(root.Position.X,original.Position.X)
+eq(app.Gui.Parent,pg);tick(.24)
 eq(_G.SlapBattlesAutoCandy,nil)
 local active=0;for _,s in ipairs(signals)do for _,c in ipairs(s.listeners)do if c.Connected then active=active+1 end end end
 eq(active,0)
@@ -141,5 +189,6 @@ eq(active,0)
 local first=dofile('auto_candy.lua');local second=dofile('auto_candy.lua')
 eq(first.Gui.Parent,nil);eq(second.Gui.Parent,pg)
 second:Destroy();eq(_G.SlapBattlesAutoCandy,nil)
+for _,t in ipairs(tweens)do eq(t.Cancelled,true)end
 os.clock=realClock
 print('PASS: '..count..' actual bundle/GUI/geometry/input/return/cleanup assertions')

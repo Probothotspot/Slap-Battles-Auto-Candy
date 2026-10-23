@@ -5,16 +5,22 @@ local function make(class,props,parent)
 end
 local function round(o,n) make("UICorner",{CornerRadius=UDim.new(0,n or 10)},o) end
 function Gui.mount(player,register)
-    local self={Lines={},Collapsed=false,Destroyed=false,Tweens={}}
+    local self={Lines={},Collapsed=false,Destroyed=false,Tweens={},Motion={},UserScale=1,Buttons={}}
     local tween=game:GetService("TweenService")
     local input=game:GetService("UserInputService")
     local gui=make("ScreenGui",{Name="AutoCandyGUI",ResetOnSpawn=false,DisplayOrder=1000,
         ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player:WaitForChild("PlayerGui"))
     self.Gui=gui
     local safe=make("Frame",{Name="SafeArea",Size=UDim2.fromScale(1,1),BackgroundTransparency=1},gui)
-    local window=make("Frame",{Name="Window",Size=UDim2.fromOffset(340,402),Position=UDim2.new(.5,-170,.5,-201),
-        BackgroundColor3=rgb(66,32,102),BorderSizePixel=0,ClipsDescendants=true},safe);round(window,16)
+    local window=make("CanvasGroup",{Name="Window",Size=UDim2.fromOffset(340,402),Position=UDim2.new(.5,-170,.5,-201),
+        GroupTransparency=1,BackgroundColor3=rgb(66,32,102),BorderSizePixel=0,ClipsDescendants=true},safe);round(window,16)
     local scale=make("UIScale",{Scale=1},window)
+    local function animate(object,key,props,duration)
+        local channels=self.Motion[object] or {};self.Motion[object]=channels
+        if channels[key] then channels[key]:Cancel() end
+        local motion=tween:Create(object,TweenInfo.new(duration or .18,Enum.EasingStyle.Quart,Enum.EasingDirection.Out),props)
+        channels[key]=motion;motion:Play();return motion
+    end
     make("UIStroke",{Color=rgb(188,119,255),Thickness=1,Transparency=.3},window)
     local gradient=make("UIGradient",{Color=ColorSequence.new({ColorSequenceKeypoint.new(0,rgb(116,59,177)),
         ColorSequenceKeypoint.new(.5,rgb(55,30,84)),ColorSequenceKeypoint.new(1,rgb(30,23,47))}),Rotation=0},window)
@@ -26,13 +32,28 @@ function Gui.mount(player,register)
     local function button(name,value,x,y,w,h,parent)
         local b=make("TextButton",{Name=name,Text=value,Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(w,h),
             BackgroundColor3=rgb(96,53,145),TextColor3=rgb(255,245,255),Font=Enum.Font.GothamBold,
-            TextSize=14,BorderSizePixel=0,AutoButtonColor=true},parent or window);round(b,9);return b
+            TextSize=14,BorderSizePixel=0,AutoButtonColor=false},parent or window);round(b,9)
+        local size=make("UIScale",{Scale=1},b)
+        local state={Object=b,Scale=size,Base=rgb(96,53,145)};self.Buttons[b]=state
+        local function paint()
+            animate(size,"size",{Scale=state.Pressed and .96 or state.Hover and 1.025 or 1},.14)
+            animate(b,"color",{BackgroundColor3=state.Hover and rgb(137,77,191) or state.Base},.18)
+        end
+        state.Paint=paint
+        register(b.MouseEnter:Connect(function() if not self.Closing then state.Hover=true;paint() end end))
+        register(b.MouseLeave:Connect(function() state.Hover=false;state.Pressed=false;paint() end))
+        register(b.InputBegan:Connect(function(e)
+            if not self.Closing and (e.UserInputType==Enum.UserInputType.MouseButton1 or e.UserInputType==Enum.UserInputType.Touch) then
+                state.Pressed=true;paint()
+            end
+        end))
+        return b
     end
     local title=text(window,"Title","Auto Candy",15,5,230,38,20);title.Font=Enum.Font.GothamBold;title.Active=true
     local collapse=button("Collapse","−",265,10,28,28)
     local close=button("Close","×",302,10,28,28)
-    local body=make("Frame",{Name="Body",Position=UDim2.fromOffset(0,46),Size=UDim2.new(1,0,1,-46),BackgroundTransparency=1},window)
-    text(body,"Subtitle","Поиск → ТП → один клик → возврат",15,0,310,24,11)
+    local body=make("CanvasGroup",{Name="Body",Position=UDim2.fromOffset(0,46),Size=UDim2.fromOffset(340,356),GroupTransparency=0,BackgroundTransparency=1},window)
+    text(body,"Subtitle","Поиск → ТП → клик → проверка стука",15,0,310,24,11)
     self.AutoButton=button("Auto","Авто: OFF",15,34,148,42,body)
     self.TeleportButton=button("Teleport","Телепорт",177,34,148,42,body)
     self.HopButton=button("ServerHop","Смена серверов: OFF",15,84,310,38,body)
@@ -47,6 +68,8 @@ function Gui.mount(player,register)
         TextWrapped=true,Text="",RichText=false},scroll)
     local credit=text(body,"Credit","By: Probothotspot",15,327,310,16,10)
     credit.TextXAlignment=Enum.TextXAlignment.Center
+    local resize=button("Resize","↘",313,375,22,22)
+    resize.TextSize=17;resize.BackgroundTransparency=.25
     function self:log(message)
         if self.Destroyed then return end
         self.Lines[#self.Lines+1]=os.date("%H:%M:%S").."  "..tostring(message)
@@ -60,7 +83,8 @@ function Gui.mount(player,register)
         if self.AutoShown~=app.Auto then
             self.AutoShown=app.Auto
             self.AutoButton.Text=app.Auto and "Авто: ON" or "Авто: OFF"
-            self.AutoButton.BackgroundColor3=app.Auto and rgb(145,77,200) or rgb(96,53,145)
+            local state=self.Buttons[self.AutoButton]
+            state.Base=app.Auto and rgb(145,77,200) or rgb(96,53,145);state.Paint()
         end
         local hop=hopper and hopper.Enabled or false
         if self.HopShown~=hop then self.HopShown=hop;self.HopButton.Text=hop and "Смена серверов: ON" or "Смена серверов: OFF" end
@@ -68,37 +92,86 @@ function Gui.mount(player,register)
         local state=actions and not actions.Ready and ("Индексация в фоне: "..actions.Scanned.." объектов") or self.LastMessage or "Ожидание"
         if self.LastShownState~=state then self.LastShownState=state;self.State.Text=state end
     end
-    function self:clickVisibility(show) if not self.Destroyed then gui.Enabled=show end end
-    local function fit()
+    function self:clickVisibility(show)
+        if not self.Destroyed then
+            gui.Enabled=show
+            if show and not self.Closing then window.GroupTransparency=.2;animate(window,"fade",{GroupTransparency=0},.16) end
+        end
+    end
+    local function fit(smooth)
         local area=safe.AbsoluteSize
         if area.X<=0 or area.Y<=0 then return end
         local h=self.Collapsed and 46 or 402
-        scale.Scale=math.max(.1,math.min(1,(area.X-16)/340,(area.Y-16)/h))
+        local target=math.max(.1,math.min(self.UserScale,(area.X-16)/340,(area.Y-16)/h))
+        if smooth then animate(scale,"resize",{Scale=target},.08)
+        else
+            local channels=self.Motion[scale];if channels and channels.resize then channels.resize:Cancel() end
+            scale.Scale=target
+        end
         local x=window.Position.X.Scale*area.X+window.Position.X.Offset
         local y=window.Position.Y.Scale*area.Y+window.Position.Y.Offset
-        window.Position=UDim2.fromOffset(math.clamp(x,0,math.max(0,area.X-340*scale.Scale)),
-            math.clamp(y,0,math.max(0,area.Y-h*scale.Scale)))
+        window.Position=UDim2.fromOffset(math.clamp(x,0,math.max(0,area.X-340*target)),
+            math.clamp(y,0,math.max(0,area.Y-h*target)))
     end
-    register(safe:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit))
+    register(safe:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() fit(false) end))
     register(collapse.Activated:Connect(function()
-        self.Collapsed=not self.Collapsed;body.Visible=not self.Collapsed
-        window.Size=UDim2.fromOffset(340,self.Collapsed and 46 or 402)
-        collapse.Text=self.Collapsed and "+" or "−";fit()
+        if self.Closing then return end
+        self.Collapsed=not self.Collapsed;body.Visible=true;resize.Visible=not self.Collapsed
+        animate(body,"fade",{GroupTransparency=self.Collapsed and 1 or 0},.16)
+        animate(window,"height",{Size=UDim2.fromOffset(340,self.Collapsed and 46 or 402)},.25)
+        self.CollapseDue=os.clock()+.26
+        collapse.Text=self.Collapsed and "+" or "−";fit(true)
     end))
-    local drag,pointer,origin
+    local drag,pointer,origin,resizing
     register(title.InputBegan:Connect(function(e)
-        if e.UserInputType==Enum.UserInputType.MouseButton1 or e.UserInputType==Enum.UserInputType.Touch then
+        if not self.Closing and (e.UserInputType==Enum.UserInputType.MouseButton1 or e.UserInputType==Enum.UserInputType.Touch) then
             drag,pointer,origin=e,e.Position,window.Position
         end
     end))
+    register(resize.InputBegan:Connect(function(e)
+        if not self.Collapsed and not self.Closing and (e.UserInputType==Enum.UserInputType.MouseButton1 or e.UserInputType==Enum.UserInputType.Touch) then
+            resizing={Input=e,Pointer=e.Position,Scale=scale.Scale};drag=nil
+        end
+    end))
     register(input.InputChanged:Connect(function(e)
+        if self.Closing then return end
+        if resizing then
+            if e~=resizing.Input and e.UserInputType~=Enum.UserInputType.MouseMovement then return end
+            local delta=e.Position-resizing.Pointer
+            local dx,dy=delta.X/340,delta.Y/402
+            self.UserScale=math.clamp(resizing.Scale+(math.abs(dx)>math.abs(dy) and dx or dy),.65,1.6)
+            fit(true);return
+        end
         if not drag then return end
         if e~=drag and not (drag.UserInputType==Enum.UserInputType.MouseButton1 and e.UserInputType==Enum.UserInputType.MouseMovement) then return end
         local delta=e.Position-pointer
         window.Position=UDim2.new(origin.X.Scale,origin.X.Offset+delta.X,origin.Y.Scale,origin.Y.Offset+delta.Y);fit()
     end))
-    register(input.InputEnded:Connect(function(e) if e==drag then drag=nil end end))
-    register(input.WindowFocusReleased:Connect(function() drag=nil end))
+    register(input.InputEnded:Connect(function(e)
+        if e==drag then drag=nil end
+        if resizing and e==resizing.Input then resizing=nil end
+        if e.UserInputType==Enum.UserInputType.MouseButton1 or e.UserInputType==Enum.UserInputType.Touch then
+            for _,s in pairs(self.Buttons) do if s.Pressed then s.Pressed=false;s.Paint() end end
+        end
+    end))
+    register(input.WindowFocusReleased:Connect(function()
+        drag=nil;resizing=nil
+        for _,s in pairs(self.Buttons) do s.Pressed=false;s.Hover=false;s.Paint() end
+    end))
+    function self:closeAnimated(done)
+        if self.Closing or self.Destroyed then return end
+        self.Closing=true;drag=nil;resizing=nil;self.CloseDone=done;self.CloseDue=os.clock()+.23
+        animate(window,"fade",{GroupTransparency=1},.22)
+        local p=window.Position
+        animate(window,"position",{Position=UDim2.new(p.X.Scale,p.X.Offset,p.Y.Scale,p.Y.Offset+14)},.22)
+    end
+    register(game:GetService("RunService").Heartbeat:Connect(function()
+        if self.Destroyed then return end
+        if self.CollapseDue and os.clock()>=self.CollapseDue then self.CollapseDue=nil;body.Visible=not self.Collapsed end
+        if self.CloseDue and os.clock()>=self.CloseDue then
+            self.CloseDue=nil;local done=self.CloseDone;self.CloseDone=nil;if done then done() end
+        end
+    end))
     local shimmer=tween:Create(gradient,TweenInfo.new(10,Enum.EasingStyle.Linear,Enum.EasingDirection.InOut,-1),{Rotation=360})
     local creditShimmer=tween:Create(credit,TweenInfo.new(2,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut,-1,true),{TextColor3=rgb(155,155,170)})
     self.Tweens={shimmer,creditShimmer};shimmer:Play();creditShimmer:Play()
@@ -107,8 +180,13 @@ function Gui.mount(player,register)
         if self.Destroyed then return end
         self.Destroyed=true
         for _,t in ipairs(self.Tweens) do t:Cancel() end
+        for _,channels in pairs(self.Motion) do for _,t in pairs(channels) do t:Cancel() end end
+        self.Motion={};self.CloseDone=nil
         gui:Destroy()
     end
-    fit();return self
+    fit(false)
+    local p=window.Position;window.Position=UDim2.new(p.X.Scale,p.X.Offset,p.Y.Scale,p.Y.Offset+14)
+    animate(window,"position",{Position=p},.3);animate(window,"fade",{GroupTransparency=0},.3)
+    return self
 end
 return Gui
