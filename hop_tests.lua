@@ -50,21 +50,33 @@ h=Hop.new(c);eq(h.ShouldResume,true);eq(h.Visited.old,epoch)
 stored.UserId=456;eq(Hop.new(c).ShouldResume,false);stored.UserId=123
 stored.SavedAt=epoch-601;eq(Hop.new(c).ShouldResume,false);stored.SavedAt=epoch
 stored.ResumeJobId='wrong';eq(Hop.new(c).ShouldResume,false)
+-- A false return is refusal even when the queue function did not throw.
+c.Spawn=function(fn)fn()end
+local originalQueue=c.Queue;c.Queue=function()return false end
+local rejected=Hop.new(c);rejected:setEnabled(true);before=#jobs;rejected:begin()
+eq(#jobs,before);eq(rejected.Pending,false);eq(rejected.Failures,1);eq(stored.ResumeJobId,nil)
+c.Queue=originalQueue
+-- A refused state write must not report a ready hop mode.
+local originalWrite=c.Write;c.Write=function()return false end
+local denied=Hop.new(c);eq(denied:setEnabled(true),false);eq(denied.Enabled,false)
+c.Write=originalWrite
 -- The actual queued program checks the persisted switch and avoids duplicate boot.
 local code=queued[1];local boots=0
 stored={Schema=1,Enabled=true,PlaceId=10,UserId=123,SavedAt=epoch,ResumeJobId='next'}
 local originalTime=os.time;os.time=function()return epoch end
 readfile=function()return stored end
-local player={UserId=123}
+local player={UserId=123,FindFirstChild=function()return{}end}
 game={PlaceId=10,JobId='next',GetService=function(_,name)
  if name=='Players'then return{LocalPlayer=player}end
  return{JSONDecode=function(_,v)return v end}
 end,IsLoaded=function()return true end,HttpGet=function()return 'fixed loader fixture'end}
-loadstring=function()return function()boots=boots+1 end end
-warn=function(s)error(s)end
+loadstring=function()return function()boots=boots+1;return{State='ready',App={Gui={Parent={}}}}end end
+local resumeClock=0;local originalClock=os.clock;os.clock=function()return resumeClock end
+task={spawn=function(fn)fn()end,wait=function(dt)resumeClock=resumeClock+(dt or .1)end}
+warn=function()end
 assert(load(code))();eq(boots,1);assert(load(code))();eq(boots,1)
-_G.AutoCandyResumeBooted=nil;stored.Enabled=false;assert(load(code))();eq(boots,1)
-stored.Enabled=true;game.JobId='wrong';assert(load(code))();eq(boots,1)
-os.time=originalTime
+_G.AutoCandyResumeBooted=nil;_G.AutoCandyResumeStatus=nil;stored.Enabled=false;assert(load(code))();eq(boots,1)
+stored.Enabled=true;_G.AutoCandyResumeStatus=nil;game.JobId='wrong';assert(load(code))();eq(boots,1)
+os.time=originalTime;os.clock=originalClock
 h:Destroy(false);eq(h.Destroyed,true);eq(stored.Enabled,false)
 print('PASS: '..n..' server selection, quiet window, retries, resume gates and cancellation assertions')

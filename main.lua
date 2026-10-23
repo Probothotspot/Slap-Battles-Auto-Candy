@@ -14,7 +14,7 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
     if type(env[key])=="table" and type(env[key].Destroy)=="function" then env[key]:Destroy() end
     local connections={};local app,view,actions,hopper,settings;local destroyed=false
     local function register(c) connections[#connections+1]=c;return c end
-    local handle={Version="1.6.0"}
+    local handle={Version="1.6.1"}
     local function dispose(preserve)
         if destroyed then return end;destroyed=true
         if hopper then hopper:Destroy(preserve==true) end
@@ -29,7 +29,8 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
     local ok,err=pcall(function()
         view=Gui.mount(player,register,{Hotkey=true})
         local http=game:GetService("HttpService")
-        settings=Settings.new({UserId=player.UserId,Read=readfile,Write=writefile,IsFile=isfile,
+        settings=Settings.new({UserId=player.UserId,Read=type(readfile)=="function" and readfile or env.readfile,
+            Write=type(writefile)=="function" and writefile or env.writefile,IsFile=isfile or env.isfile,
             Encode=function(v) return http:JSONEncode(v) end,Decode=function(v) return http:JSONDecode(v) end,
             Log=function(s) view:log(s) end})
         handle.Settings=settings
@@ -41,10 +42,28 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
         app.NewDoorDelay=settings.Values.DoorDelay
         view.DoorDelay.Text=tostring(app.NewDoorDelay)
         local teleport=game:GetService("TeleportService")
-        local queue=queue_on_teleport or queueonteleport or (type(syn)=="table" and syn.queue_on_teleport)
+        local queue,queueName
+        local function candidate(fn,name)
+            if not queue and type(fn)=="function" then queue,queueName=fn,name end
+        end
+        candidate(queue_on_teleport,"queue_on_teleport");candidate(queueonteleport,"queueonteleport")
+        candidate(env.queue_on_teleport,"getgenv().queue_on_teleport");candidate(env.queueonteleport,"getgenv().queueonteleport")
+        local directNamespaces={syn=syn,fluxus=fluxus}
+        for _,namespace in ipairs({"syn","fluxus"}) do
+            local space=directNamespaces[namespace]
+            if type(space)~="table" then space=type(env[namespace])=="table" and env[namespace] or _G[namespace] end
+            if type(space)=="table" then
+                candidate(space.queue_on_teleport,namespace..".queue_on_teleport")
+                candidate(space.queueonteleport,namespace..".queueonteleport")
+            end
+        end
+        local read=type(readfile)=="function" and readfile or env.readfile
+        local write=type(writefile)=="function" and writefile or env.writefile
+        local loading=env.AutoCandyLoading
         local send=request or http_request or (type(syn)=="table" and syn.request)
         hopper=ServerHop.new({App=app,Actions=actions,PlaceId=game.PlaceId,JobId=game.JobId,UserId=player.UserId,
-            Log=function(s) view:log(s) end,Queue=queue,Read=readfile,Write=writefile,Spawn=task.spawn,
+            Log=function(s) view:log(s) end,Queue=queue,QueueName=queueName,Read=read,Write=write,Spawn=task.spawn,Wait=task.wait,
+            Source=type(loading)=="table" and loading.Source or nil,
             Encode=function(v) return http:JSONEncode(v) end,Decode=function(v) return http:JSONDecode(v) end,
             UrlEncode=function(v) return http:UrlEncode(v) end,
             Get=function(url)
@@ -59,6 +78,10 @@ function Main.start(Core,Actions,Gui,ServerHop,Feedback,Settings)
             Teleport=function(job) teleport:TeleportToPlaceInstance(game.PlaceId,job,player) end,
         })
         handle.Hopper=hopper
+        view:log(queueName and ("Автозапуск: найдена очередь "..queueName.."; выполнение после ТП ещё не подтверждено") or
+            "Автозапуск: очередь перехода не найдена")
+        local resumed=env.AutoCandyResumeStatus
+        if type(resumed)=="table" and resumed.Target==game.JobId then view:log("Загрузка после перехода: GUI открыт") end
         local input=game:GetService("UserInputService")
         local keyNames={}
         for _,code in ipairs(Enum.KeyCode:GetEnumItems()) do

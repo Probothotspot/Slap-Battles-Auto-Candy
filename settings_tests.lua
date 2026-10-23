@@ -30,6 +30,7 @@ local oldWrite=c.Write;c.Write=function()error('denied')end
 r=Settings.new(c);eq(r:set({DoorDelay=4}),false);eq(r.Values.DoorDelay,4)
 local errors=#logs;eq(r:set({DoorDelay=5}),false);eq(#logs,errors)
 c.Write=oldWrite;eq(r:save(),true);eq(Settings.new(c).Values.DoorDelay,5)
+c.Write=function()return false end;r=Settings.new(c);eq(r:set({DoorDelay=6}),false)
 c.Read=nil;c.Write=nil;r=Settings.new(c);eq(r.Available,false);eq(r:set({DoorDelay=7}),false);eq(r.Values.DoorDelay,7)
 errors=#logs;r:set({DoorDelay=8});eq(#logs,errors)
 print('PASS: '..n..' validated settings, account isolation, persistence, reset and unavailable-storage assertions')

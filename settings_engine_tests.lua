@@ -181,6 +181,15 @@ eq(find('Window'):FindFirstChildOfClass('UIScale').Scale,1);eq(find('Window').Si
 eq(root.Position.X,20)
 app=dofile('auto_candy.lua');eq(app.App.Auto,false);eq(app.Hopper.Enabled,false);eq(app.App.NewDoorDelay,1)
 eq(find('StopKey').Text,'T');eq(app.Settings.Values.Collapsed,false);eq(app.Settings.Values.Scale,1)
+-- Xeno-like environments can expose aliases only through getgenv(). Ignore non-function globals.
+app:Destroy()
+local savedRead,savedWrite,savedQueue=readfile,writefile,queue_on_teleport
+local injected={readfile=readfile,writefile=writefile,queueonteleport=function()end}
+getgenv=function()return injected end;readfile=nil;writefile=nil;queue_on_teleport=true
+app=dofile('auto_candy.lua');find('ServerHop').Activated:Fire()
+eq(app.Hopper.Enabled,true);eq(app.Settings.Available,true)
+eq(find('LogText').Text:find('getgenv().queueonteleport',1,true)~=nil,true)
+app:Destroy();getgenv=nil;readfile=savedRead;writefile=savedWrite;queue_on_teleport=savedQueue
 -- Persistence failures leave the controls responsive and are visible in the log.
 writefile=function()error('fixture write denied')end
 app=dofile('auto_candy.lua');find('DoorDelay').Text='4';find('DoorDelay').FocusLost:Fire(true)

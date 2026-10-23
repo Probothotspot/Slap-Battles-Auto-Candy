@@ -1,8 +1,9 @@
 -- Draw first, fetch on a separate task, index only after the main GUI mounts.
-local URL="https://raw.githubusercontent.com/Probothotspot/Slap-Battles-Auto-Candy/main/auto_candy.lua?v=1.6.0"
+local URL="https://raw.githubusercontent.com/Probothotspot/Slap-Battles-Auto-Candy/main/auto_candy.lua?v=1.6.1"
 local env=type(getgenv)=="function" and getgenv() or _G
 local old=env.AutoCandyLoading
 if type(old)=="table" and type(old.Destroy)=="function" then old:Destroy() end
+local resume=env.AutoCandyResumeSource;env.AutoCandyResumeSource=nil
 local previous=env.SlapBattlesAutoCandy
 if type(previous)=="table" and type(previous.Destroy)=="function" then previous:Destroy() end
 local player=game:GetService("Players").LocalPlayer
@@ -34,11 +35,16 @@ task.spawn(function()
     local ok,err=pcall(function()
         if report.Destroyed or report.State~="loading" then return end
         assert(type(loadstring)=="function","loadstring unavailable")
-        local source=game:HttpGet(URL)
+        local source
+        if type(resume)=="table" and resume.Job==game.JobId and type(resume.Source)=="string" and
+            resume.Source:sub(1,#"-- Auto Candy v1.6.1 |")=="-- Auto Candy v1.6.1 |" then
+            source=resume.Source
+        else source=game:HttpGet(URL) end
         if report.Destroyed or report.State~="loading" then return end
         assert(type(source)=="string" and #source>0,"Empty download")
         local chunk,problem=loadstring(source,"@AutoCandy/auto_candy.lua");assert(chunk,problem)
         if report.Destroyed or report.State~="loading" then return end
+        report.Source=source
         local app=chunk()
         assert(type(app)=="table" and app.Gui and app.Gui.Parent,"Main GUI did not appear")
         if report.Destroyed or report.State~="loading" then app:Destroy();return end

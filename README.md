@@ -1,10 +1,41 @@
 # Auto Candy
 
-Отдельный проект для Slap Battles, версия 1.6.0. Насыщенный фиолетовый переливающийся фон с контрастным светлым текстом.
+Отдельный проект для Slap Battles, версия 1.6.1. Насыщенный фиолетовый переливающийся фон с контрастным светлым текстом.
 
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/Probothotspot/Slap-Battles-Auto-Candy/main/loader.lua"))()
 ```
+
+## Автозагрузка после перехода — версия 1.6.1
+
+В прежней очереди проверка LocalPlayer, JobId и файла выполнялась до ожидания игры.
+Если Xeno запускал очередь рано, скрипт мог просто завершиться без окна. Новый обработчик
+запускается в task.spawn и до 60 секунд ждёт IsLoaded, правильный JobId/PlaceId, LocalPlayer,
+PlayerGui и готовность readfile. Первые 5 секунд допускают запоздавшую синхронизацию файла
+состояния; выключенный режим не запускает loader. Проверки аккаунта, сервера и возраста
+состояния до 10 минут сохранены. Повторная запись одной очереди не создаёт вторую загрузку.
+
+Loader встроен в отправляемую строку, поэтому скачивать loader.lua на новом сервере не нужно.
+При запуске через loader текущий bundle сохраняется перед переходом в
+`AutoCandyResume-v1.6.1-<UserId>.lua`. На новом сервере первая попытка использует эту копию,
+если совпадает заголовок версии и размер не больше 2 МиБ. Это проверка версии, не криптографическая
+проверка целостности. Если копия отсутствует, устарела или первая загрузка отказала, следующие
+попытки используют обычное скачивание bundle. До трёх попыток с паузой 2 секунды; готовность
+подтверждается по State=ready загрузчика и существующему основному GUI. Маркер успешного
+запуска ставится только после этого. Во время загрузки видна прежняя полоска 0/1.
+
+Функция очереди ищется как queue_on_teleport / queueonteleport в текущем окружении и
+getgenv(), затем в syn/fluxus. Берутся только функции; имя найденной функции видно в логах.
+Явный false от очереди отменяет переход, false от writefile считается отказом сохранения.
+После принятия очереди предусмотрена короткая пауза 0.3 с и повторная проверка отмены.
+Принятие строки функцией не считается доказательством её исполнения после перехода.
+
+Когда обработчик действительно запущен, его этап доступен в getgenv().AutoCandyResumeStatus
+и по возможности в `AutoCandyResumeStatus-<UserId>.json`: waiting/loading/retry/ready/error/cancelled,
+попытка и причина. Если Xeno вообще не исполнил очередь, новая запись не появится: Lua-код
+не может включить неработающее автоподключение самого executor. В этой среде живого Xeno
+нет; проверены модель раннего запуска, запоздавший PlayerGui/JobId/readfile, локальная копия,
+отказ очереди, повторы, отмена и восстановление GUI. Нужен один реальный переход на установленной сборке.
 
 ## Новые двери, повтор и сохранение — версия 1.6.0
 
@@ -352,7 +383,8 @@ Feedback.lua подписывается на Sound.Played и изменение 
 - Actions.lua — индекс дверей, геометрия, телепорт, камера и виртуальный клик.
 - Feedback.lua — ограниченное наблюдение за звуками выбранной двери.
 - Gui.lua — анимированный фиолетовый интерфейс Auto Candy со сменой масштаба.
-- ServerHop.lua — выбор сервера, ожидание, повторы и продолжение после перехода.
+- ServerHop.lua — выбор сервера, отложенный bootstrap, локальная копия и продолжение после перехода.
+- resume_tests.lua — выполнение отправляемого bootstrap с ранним запуском и запоздавшей готовностью.
 - Settings.lua — проверенные параметры JSON, сохранение по аккаунту и сброс.
 - settings_tests.lua / settings_engine_tests.lua — сохранение, восстановление, GUI и сброс.
 - door_delay_tests.lua — возраст дверей, задержки, повтор той же цели и отмена.
@@ -367,8 +399,8 @@ Feedback.lua подписывается на Sound.Played и изменение 
 - auto_wait_tests.lua / noclip_tests.lua — постоянное ожидание, новые генерации, препятствия и восстановление физики.
 - tests.lua / engine_tests.lua / feedback_tests.lua / hop_tests.lua / index_tests.lua / loader_tests.lua — логические проверки и модель Roblox для запуска bundle.
 
-Проверки: `lua tests.lua` и `lua engine_tests.lua`, `lua hop_tests.lua`, `lua index_tests.lua`, `lua loader_tests.lua`, `lua feedback_tests.lua`, `lua pixel_tests.lua`, `lua pixel_engine_tests.lua`, `lua method_tests.lua`, `lua method_engine_tests.lua`, `lua auto_wait_tests.lua`, `lua noclip_tests.lua`, `lua settings_tests.lua`, `lua settings_engine_tests.lua`, `lua door_delay_tests.lua` (Lua 5.4).
-В версии 1.6.0 проходят 1385 проверок (включая постоянное автоожидание, позднее имя
+Проверки: `lua tests.lua` и `lua engine_tests.lua`, `lua hop_tests.lua`, `lua index_tests.lua`, `lua loader_tests.lua`, `lua feedback_tests.lua`, `lua pixel_tests.lua`, `lua pixel_engine_tests.lua`, `lua method_tests.lua`, `lua method_engine_tests.lua`, `lua auto_wait_tests.lua`, `lua noclip_tests.lua`, `lua settings_tests.lua`, `lua settings_engine_tests.lua`, `lua door_delay_tests.lua`, `lua resume_tests.lua` (Lua 5.4).
+В версии 1.6.1 проходят 1456 проверок (включая постоянное автоожидание, позднее имя
 двери, поколения объектов, noclip среди препятствий, остановку горячей клавишей,
 настройку привязки, возраст дверей, повторы через 3 секунды, сохранение, сброс
 и восстановление физики), включая отказ/молчание ввода, смену координат,

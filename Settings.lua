@@ -34,7 +34,8 @@ function Settings.new(c)
             return false
         end
         local ok,why=pcall(function()
-            c.Write(self.File,c.Encode({Schema=1,UserId=c.UserId,Values=copy(self.Values)}))
+            local result=c.Write(self.File,c.Encode({Schema=1,UserId=c.UserId,Values=copy(self.Values)}))
+            assert(result~=false,'writefile вернула false')
         end)
         if not ok then
             if not self.WriteError then report('Не удалось сохранить настройки: '..tostring(why)) end

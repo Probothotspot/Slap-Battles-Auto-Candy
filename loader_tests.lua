@@ -153,6 +153,18 @@ worker();eq(downloads,before);eq(_G.SlapBattlesAutoCandy,nil);report:Destroy()
 -- Restart before a request completes: stale worker must not download or mount.
 report=dofile("loader.lua");worker=pending[#pending];report:Destroy();worker();eq(downloads,before)
 eq(_G.SlapBattlesAutoCandy,nil)
+-- A verified same-version resume bundle starts even while HTTP is unavailable.
+local f=assert(io.open("auto_candy.lua","rb"));local cached=f:read("*a");f:close()
+failed=true;before=downloads
+_G.AutoCandyResumeSource={Job=game.JobId,Source=cached}
+report=dofile("loader.lua");pending[#pending]()
+eq(report.State,"ready");eq(downloads,before);eq(report.App.Version,"1.6.1")
+eq(report.Source,cached);eq(_G.AutoCandyResumeSource,nil);report.App:Destroy()
+-- A wrong job or old header cannot silently execute the resume cache.
+_G.AutoCandyResumeSource={Job="other",Source=cached}
+report=dofile("loader.lua");pending[#pending]();eq(report.State,"error");eq(downloads,before+1);report:Destroy()
+_G.AutoCandyResumeSource={Job=game.JobId,Source="-- Auto Candy v1.6.0 | old bundle"}
+report=dofile("loader.lua");pending[#pending]();eq(report.State,"error");eq(downloads,before+2);report:Destroy()
 local active=0;for _,sig in ipairs(signals)do for _,conn in ipairs(sig.listeners)do if conn.Connected then active=active+1 end end end
 eq(active,0)
 os.clock=realClock

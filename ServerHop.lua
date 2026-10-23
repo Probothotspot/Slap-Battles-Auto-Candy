@@ -1,6 +1,7 @@
 -- Resume requires executor-provided queue_on_teleport plus readfile/writefile.
 -- Processed generations track bounded interactions/local feedback, not verified candy rewards.
 local Hop={}
+local HEADER="-- Auto Candy v1.6.1 |"
 local FILE="AutoCandyHop-v1.json"
 local URL="https://raw.githubusercontent.com/Probothotspot/Slap-Battles-Auto-Candy/main/loader.lua"
 function Hop.choose(data,current,visited,now)
@@ -18,6 +19,7 @@ end
 function Hop.new(c)
     local clock=c.Clock or os.clock
     local epoch=c.Epoch or os.time
+    local cacheFile="AutoCandyResume-v1.6.1-"..tostring(c.UserId)..".lua"
     local log=c.Log
     local self={Enabled=false,Pending=false,Searching=false,Generation=0,Failures=0,NextTry=0,Visited={}}
     local function valid(s)
@@ -46,8 +48,9 @@ function Hop.new(c)
             if epoch()-t<1800 and n<199 then pruned[job]=t;n=n+1 end
         end
         pruned[c.JobId]=epoch();self.Visited=pruned
-        c.Write(FILE,c.Encode({Schema=1,Enabled=self.Enabled,PlaceId=c.PlaceId,UserId=c.UserId,
+        local written=c.Write(FILE,c.Encode({Schema=1,Enabled=self.Enabled,PlaceId=c.PlaceId,UserId=c.UserId,
             SavedAt=epoch(),ResumeJobId=target,VisitedJobs=pruned}))
+        assert(written~=false,"writefile вернула false: состояние перехода не сохранено")
     end
     function self:setEnabled(value)
         self.Generation=self.Generation+1;self.Searching=false;self.QuietSince=nil
@@ -63,7 +66,7 @@ function Hop.new(c)
         if not ok then self.Enabled=false;log("Не удалось сохранить режим: "..tostring(err));return false end
         c.App.HopMode=self.Enabled
         if self.Enabled then c.App:setAuto(true) end
-        log(self.Enabled and "Смена серверов: ON. Двери обрабатываются один раз на сервер" or "Смена серверов: OFF")
+        log(self.Enabled and ("Смена серверов: ON | Очередь: "..tostring(c.QueueName or "queue_on_teleport")) or "Смена серверов: OFF")
         return true
     end
     function self:failed(reason)
@@ -73,28 +76,124 @@ function Hop.new(c)
         log("Переход не выполнен: "..tostring(reason))
         if self.Failures>=5 then self:setEnabled(false);log("Пять ошибок подряд — режим остановлен") end
     end
-    local function payload()
-        return string.format([=[
-local ok,err=pcall(function()
- if type(readfile)~="function" then return end
- local state=game:GetService("HttpService"):JSONDecode(readfile(%q))
- local player=game:GetService("Players").LocalPlayer
- if not player or type(state)~="table" or state.Schema~=1 or state.Enabled~=true
-  or state.PlaceId~=game.PlaceId or state.UserId~=player.UserId or state.ResumeJobId~=game.JobId
-  or type(state.SavedAt)~="number" or math.abs(os.time()-state.SavedAt)>=600 then return end
- local env=type(getgenv)=="function" and getgenv() or _G
- if env.AutoCandyResumeBooted==game.JobId then return end
- env.AutoCandyResumeBooted=game.JobId
- local loaded,problem=pcall(function()
-  if not game:IsLoaded() then game.Loaded:Wait() end
-  local source=game:HttpGet(%q)
-  local chunk,compileError=loadstring(source,"@AutoCandy/resume")
-  assert(chunk,compileError);chunk()
- end)
- if not loaded then env.AutoCandyResumeBooted=nil;error(problem) end
-end)
-if not ok then warn("[AutoCandy resume] "..tostring(err)) end
-]=],FILE,URL)
+    local function payload(target)
+        local code=[=[
+local EXPECTED_PLACE,EXPECTED_USER,EXPECTED_JOB=__PLACE__,__USER__,__JOB__
+local STATE_FILE,CACHE_FILE,HEADER=__STATE__,__CACHE__,__HEADER__
+local EMBEDDED_LOADER,LOADER_URL=__LOADER__,__URL__
+local env=_G
+if type(getgenv)=='function' then local ok,v=pcall(getgenv);if ok and type(v)=='table' then env=v end end
+local current=env.AutoCandyResumeStatus
+if type(current)=='table' and current.Target==EXPECTED_JOB and
+ (current.Phase=='waiting' or current.Phase=='loading' or current.Phase=='retry' or current.Phase=='ready') then return end
+local status={Target=EXPECTED_JOB,Phase='waiting',Started=os.clock(),Attempt=0}
+env.AutoCandyResumeStatus=status
+local function api(name)
+ local direct={readfile=readfile,writefile=writefile,loadstring=loadstring}
+ local fn=direct[name];if type(fn)=='function' then return fn end
+ fn=env[name];if type(fn)=='function' then return fn end
+ fn=_G[name];if type(fn)=='function' then return fn end
+end
+local function note(phase,detail)
+ status.Phase=phase;status.Detail=detail
+ local write=api('writefile')
+ if write then pcall(function()
+  write('AutoCandyResumeStatus-'..tostring(EXPECTED_USER)..'.json',game:GetService('HttpService'):JSONEncode({
+   Phase=phase,Detail=tostring(detail or ''),Target=EXPECTED_JOB,Attempt=status.Attempt,At=os.time()}))
+ end) end
+end
+local function validState(loading)
+ local read=api('readfile');if not read then return nil,'readfile not ready' end
+ local ok,s=pcall(function()return game:GetService('HttpService'):JSONDecode(read(STATE_FILE))end)
+ if not ok then return nil,'resume file not ready' end
+ if type(s)~='table' or s.Schema~=1 or s.PlaceId~=EXPECTED_PLACE or s.UserId~=EXPECTED_USER or
+  type(s.SavedAt)~='number' or math.abs(os.time()-s.SavedAt)>=600 then return false,'invalid or stale state' end
+ if s.Enabled~=true then return false,'resume cancelled' end
+ if s.ResumeJobId~=EXPECTED_JOB then
+  local live=env.SlapBattlesAutoCandy
+  if not (loading and s.ResumeJobId==nil and type(live)=='table' and live.Gui and live.Gui.Parent and
+   live.Hopper and live.Hopper.Enabled) then return false,'destination changed' end
+ end
+ return true
+end
+local function fail(why)
+ env.AutoCandyResumeBooted=nil;note('error',tostring(why))
+ warn('[AutoCandy resume] '..tostring(why))
+end
+local function run()
+ local ready=false;local last='game/player/PlayerGui not ready'
+ -- Queue handlers may run before LocalPlayer, JobId and the file bridge exist.
+ -- Wait first; do not silently reject the destination during that startup window.
+ while os.clock()-status.Started<60 do
+  if env.AutoCandyResumeStatus~=status then return end
+  local players=game:GetService('Players');local player=players.LocalPlayer
+  local loaded=game:IsLoaded()
+  if loaded and player and player:FindFirstChild('PlayerGui') and game.JobId==EXPECTED_JOB and game.PlaceId==EXPECTED_PLACE then
+   if player.UserId~=EXPECTED_USER then note('cancelled','different account');return end
+   local permitted,why=validState();last=why
+   if permitted==false and os.clock()-status.Started>=5 then note('cancelled',why);return end
+   if permitted then ready=true;break end
+  end
+  task.wait(.2)
+ end
+ assert(ready,'Startup timeout: '..tostring(last))
+ local live=env.SlapBattlesAutoCandy
+ if type(live)=='table' and live.Gui and live.Gui.Parent then
+  env.AutoCandyResumeBooted=EXPECTED_JOB;note('ready','existing GUI');return
+ end
+ for attempt=1,3 do
+  local allowed,why=validState()
+  if allowed==false then note('cancelled',why);return end
+  status.Attempt=attempt;note('loading','starting loader')
+  local ok,result=pcall(function()
+   assert(allowed,'resume state unavailable')
+   -- A versioned local bundle avoids a second network dependency after teleport.
+   env.AutoCandyResumeSource=nil
+   local read=api('readfile')
+   if read and attempt==1 then
+    local cached,source=pcall(read,CACHE_FILE)
+    if cached and type(source)=='string' and source:sub(1,#HEADER)==HEADER and #source<=2097152 then
+     env.AutoCandyResumeSource={Job=EXPECTED_JOB,Source=source}
+    end
+   end
+   local source=EMBEDDED_LOADER
+   if source=='' then source=game:HttpGet(LOADER_URL) end
+   local compile=api('loadstring') or loadstring
+   assert(type(compile)=='function','loadstring unavailable')
+   local chunk,problem=compile(source,'@AutoCandy/resume-loader');assert(chunk,problem)
+   local report=chunk()
+   assert(type(report)=='table','loader did not return a report')
+   local began=os.clock()
+   while report.State=='loading' and os.clock()-began<30 do
+    local permitted,reason=validState(true)
+    if permitted==false then
+     if type(report.Destroy)=='function' then report:Destroy() end
+     error('Resume cancelled: '..tostring(reason))
+    end
+    task.wait(.1)
+   end
+   if report.State~='ready' or not report.App or not report.App.Gui or not report.App.Gui.Parent then
+    local problem=report.Error or 'main GUI not ready'
+    if type(report.Destroy)=='function' then report:Destroy() end
+    error(problem)
+   end
+   return report
+  end)
+  env.AutoCandyResumeSource=nil
+  if ok then env.AutoCandyResumeBooted=EXPECTED_JOB;note('ready','main GUI mounted');return end
+  note('retry',tostring(result))
+  if attempt==3 then error(result) end
+  task.wait(2)
+ end
+end
+local function worker()local ok,why=pcall(run);if not ok then fail(why)end end
+if type(task)=='table' and type(task.spawn)=='function' then task.spawn(worker)
+else fail('task.spawn unavailable after teleport')end
+]=]
+        local replacements={PLACE=tostring(c.PlaceId),USER=tostring(c.UserId),JOB=string.format('%q',target),
+            STATE=string.format('%q',FILE),CACHE=string.format('%q',cacheFile),HEADER=string.format('%q',HEADER),
+            LOADER=string.format('%q',c.LoaderSource or Hop.LoaderSource or ''),URL=string.format('%q',URL)}
+        return (code:gsub('__([A-Z]+)__',function(key)return assert(replacements[key],key)end))
     end
     function self:begin()
         if not self.Enabled or self.Pending or self.Searching then return end
@@ -118,11 +217,18 @@ if not ok then warn("[AutoCandy resume] "..tostring(err)) end
                 if not self.Enabled or generation~=self.Generation then return end
                 assert(target,"Свободный непосещённый сервер не найден")
                 self:save(target)
-                c.Queue(payload())
+                if type(c.Source)=='string' and c.Source:sub(1,#HEADER)==HEADER then
+                    local cached,problem=pcall(c.Write,cacheFile,c.Source)
+                    cached=cached and problem~=false
+                    log(cached and "Резервная копия для автозапуска сохранена" or ("Кэш автозапуска: "..tostring(problem)))
+                end
+                local queued=c.Queue(payload(target))
+                assert(queued~=false,"queue_on_teleport вернула false: переход отменён")
+                if type(c.Wait)=="function" then c.Wait(.3) end
                 if not self.Enabled or generation~=self.Generation then return end
                 self.Pending=true;self.Searching=false;self.PendingSince=clock();self.Target=target
                 self.Visited[target]=epoch()
-                log("Переход на другой сервер. Автозапуск поставлен в очередь")
+                log("Очередь приняла загрузчик: "..tostring(c.QueueName or "queue_on_teleport")..". Переход; выполнение проверяется на новом сервере")
                 c.Teleport(target)
             end)
             if generation~=self.Generation then return end
